@@ -323,16 +323,7 @@ if not "!RC!"=="0" (
   goto main_menu
 )
 
-set "MAIL_POLICY=legit"
-set "MAIL_AMOUNT=5"
-if /I "!BUCKS_MODE!"=="sandbox" (
-  set "MAIL_POLICY=sandbox_once"
-  set "MAIL_AMOUNT=99999999"
-)
-if /I "!BUCKS_MODE!"=="custom" (
-  set "MAIL_POLICY=!CUSTOM_FREQUENCY!"
-  set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
-)
+call :apply_mail_policy
 call :describe_bucks_mode
 set "UITEXT=Bucks rewards: !BUCKS_DESCRIPTION!"
 call :yellow
@@ -366,9 +357,10 @@ if not defined ADB_EXE (
   call :yellow
   goto start_server
 )
+set "ADB_EXE_ENV=!ADB_EXE!"
 "!ADB_EXE!" connect 127.0.0.1:5555 >nul 2>&1
 set "ADB_SERIAL="
-for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE_ENV; if (-not $adb) { $adb=$env:ADB_EXE }; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
 if not defined ADB_SERIAL (
   set "UITEXT=No BlueStacks device found. Starting without clock sync."
   call :yellow
@@ -376,9 +368,11 @@ if not defined ADB_SERIAL (
 )
 set "UITEXT=BlueStacks connected. Clock sync is on."
 call :yellow
-set "ADB_ARGS=--adb-logcat --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!" --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto"
+REM Build args without nested quotes so paths with spaces stay intact.
+set "ADB_ARGS=--adb-logcat --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto --adb-path !ADB_EXE! --adb-serial !ADB_SERIAL!"
 
 :start_server
+call :apply_mail_policy
 call :blank
 set "UITEXT=Starting the offline server..."
 call :yellow
@@ -391,7 +385,7 @@ set "UITEXT=Live server log below (ports, logins, saves):"
 call :yellow
 call :blank
 echo.
-"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy "!MAIL_POLICY!" --hardcash-gift-amount "!MAIL_AMOUNT!" --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS! %*
+"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
 set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
@@ -399,6 +393,24 @@ call :yellow
 call :blank
 pause
 goto main_menu
+
+:apply_mail_policy
+set "MAIL_POLICY=legit"
+set "MAIL_AMOUNT=5"
+if /I "!BUCKS_MODE!"=="sandbox" (
+  set "MAIL_POLICY=sandbox_once"
+  set "MAIL_AMOUNT=99999999"
+)
+if /I "!BUCKS_MODE!"=="custom" (
+  if /I "!CUSTOM_FREQUENCY!"=="daily" set "MAIL_POLICY=daily"
+  if /I "!CUSTOM_FREQUENCY!"=="per_login" set "MAIL_POLICY=per_login"
+  if defined CUSTOM_AMOUNT set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
+)
+if /I not "!MAIL_POLICY!"=="legit" if /I not "!MAIL_POLICY!"=="sandbox_once" if /I not "!MAIL_POLICY!"=="per_login" if /I not "!MAIL_POLICY!"=="daily" (
+  set "MAIL_POLICY=legit"
+  set "MAIL_AMOUNT=5"
+)
+exit /b 0
 
 :ensure_local_generated_files
 :: Build gitignored fixed_manifest.json + onlineoptions on Play when missing,
