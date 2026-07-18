@@ -395,8 +395,9 @@ pause
 goto main_menu
 
 :ensure_local_generated_files
-:: Build gitignored fixed_manifest.json + onlineoptions on Play when missing,
-:: or refresh the manifest IP to the detected LAN address.
+REM Build gitignored fixed_manifest.json + onlineoptions on Play when missing,
+REM or refresh the manifest IP to the detected LAN address.
+REM Avoid trailing \" in IF exist paths — it breaks CMD parsing when the folder name has parentheses.
 if not defined LAN_IP (
   cls
   call :banner
@@ -409,7 +410,7 @@ if not defined LAN_IP (
   call :yellow
   exit /b 1
 )
-if not exist "!ROOT!\cache_files\" (
+if not exist "!ROOT!\cache_files" (
   cls
   call :banner
   call :blank
@@ -420,28 +421,29 @@ if not exist "!ROOT!\cache_files\" (
   exit /b 1
 )
 set "HAVE_PACKS="
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=Join-Path $env:ROOT 'cache_files'; if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(dab|dhr|dsb)$' } | Select-Object -First 1 -ExpandProperty FullName }"`) do set "HAVE_PACKS=1"
 set "PATCH_EXTRA="
-if not defined HAVE_PACKS goto ensure_no_packs
-goto ensure_have_packs_done
-:ensure_no_packs
-if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" goto ensure_ip_only
-cls
-call :banner
-call :blank
-set "UITEXT=No game cache packs were found."
-call :yellow
-set "UITEXT=Put your .dab / .dhr / .dsb files in the cache_files folder,"
-call :yellow
-set "UITEXT=then use [2] First-time setup, or press [1] again."
-call :yellow
-exit /b 1
-:ensure_ip_only
-call :blank
-set "UITEXT=No cache packs found. Using your existing connection files."
-call :yellow
-set "PATCH_EXTRA=--ip-only"
-:ensure_have_packs_done
+set "ENSURE_READY="
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=Join-Path $env:ROOT 'cache_files'; if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(dab|dhr|dsb)$' } | Select-Object -First 1 -ExpandProperty FullName }"`) do set "HAVE_PACKS=1"
+if defined HAVE_PACKS set "ENSURE_READY=1"
+if not defined ENSURE_READY if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" (
+  call :blank
+  set "UITEXT=No cache packs found. Using your existing connection files."
+  call :yellow
+  set "PATCH_EXTRA=--ip-only"
+  set "ENSURE_READY=1"
+)
+if not defined ENSURE_READY (
+  cls
+  call :banner
+  call :blank
+  set "UITEXT=No game cache packs were found."
+  call :yellow
+  set "UITEXT=Put your .dab / .dhr / .dsb files in the cache_files folder,"
+  call :yellow
+  set "UITEXT=then use [2] First-time setup, or press [1] again."
+  call :yellow
+  exit /b 1
+)
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
