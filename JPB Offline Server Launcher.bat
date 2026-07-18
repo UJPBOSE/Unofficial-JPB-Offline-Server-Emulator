@@ -191,7 +191,6 @@ exit /b 0
 
 :patch_manifest
 cls
-call :vpad 16
 call :banner
 call :resolve_python
 if errorlevel 1 (
