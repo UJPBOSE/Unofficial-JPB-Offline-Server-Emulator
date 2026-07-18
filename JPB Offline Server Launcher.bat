@@ -14,7 +14,11 @@ if not defined ROOT set "ROOT=%CD%"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
 REM Map a drive letter when the folder path has spaces or parentheses.
 set "NEED_SUBST="
-echo "!CD!" | findstr /R "[() ]" >nul
+echo "!CD!" | find " " >nul
+if not errorlevel 1 set "NEED_SUBST=1"
+echo "!CD!" | find "(" >nul
+if not errorlevel 1 set "NEED_SUBST=1"
+echo "!CD!" | find ")" >nul
 if not errorlevel 1 set "NEED_SUBST=1"
 if defined NEED_SUBST (
   for %%D in (J K L M N O P Q R S T U V W X Y Z) do (
