@@ -348,12 +348,16 @@ call :yellow
 call :blank
 set "UITEXT=Use BlueStacks clock sync? [Y/N]:"
 call :yellow
-choice /C YN /N
-if errorlevel 2 (
-  set "UITEXT=Starting without BlueStacks sync."
-  call :yellow
-  goto start_server
-)
+set "BS_ANSWER="
+set /p "BS_ANSWER="
+if /I "!BS_ANSWER!"=="Y" goto bluestacks_setup
+if /I "!BS_ANSWER!"=="YES" goto bluestacks_setup
+set "UITEXT=Starting without BlueStacks sync."
+call :yellow
+goto start_server
+
+:bluestacks_setup
+set "ADB_EXE="
 if exist "C:\Program Files\BlueStacks_nxt\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files (x86)\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files (x86)\BlueStacks\HD-Adb.exe"
@@ -363,6 +367,7 @@ if not defined ADB_EXE (
   goto start_server
 )
 "!ADB_EXE!" connect 127.0.0.1:5555 >nul 2>&1
+set "ADB_SERIAL="
 for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
 if not defined ADB_SERIAL (
   set "UITEXT=No BlueStacks device found. Starting without clock sync."
