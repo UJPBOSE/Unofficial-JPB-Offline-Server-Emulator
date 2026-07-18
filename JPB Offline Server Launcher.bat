@@ -2,22 +2,30 @@
 chcp 65001 >nul
 setlocal EnableExtensions EnableDelayedExpansion
 title Unofficial Jurassic Park Builder - Offline Server
-cd /d "%~dp0"
 color 07
 
-REM Stay on the real folder path. Quote every use of ROOT — do not create SUBST drives.
-set "ROOT=%CD%"
+REM Always follow the .bat location — works from any drive/folder (spaces, parentheses, etc).
+REM Do not create SUBST drive letters.
+set "ROOT=%~dp0"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+cd /d "!ROOT!"
+if errorlevel 1 (
+  echo Could not open the launcher folder:
+  echo !ROOT!
+  pause
+  exit /b 1
+)
 
-set "SERVER_SCRIPT=JPB_Offline_Server_Emulator.py"
+set "SERVER_SCRIPT=!ROOT!\JPB_Offline_Server_Emulator.py"
 set "SETTINGS_FILE=!ROOT!\launcher_settings.ini"
 set "PYTHON_EXE="
 call :load_settings
 call :ensure_ui_files
 
 :main_menu
+cd /d "!ROOT!"
 call :describe_bucks_mode
-powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\launcher_ui.ps1" -Menu Main -BucksDescription "!BUCKS_DESCRIPTION!"
+call :run_ps_file "!ROOT!\launcher_ui.ps1" -Menu Main -BucksDescription "!BUCKS_DESCRIPTION!"
 set "MENU_CHOICE=!ERRORLEVEL!"
 ver >nul
 if "!MENU_CHOICE!"=="4" goto exit_launcher
@@ -40,16 +48,22 @@ set "UITEXT==============================================="
 call :red
 exit /b 0
 
+:run_ps_file
+REM Run a PowerShell script from a path that may contain spaces or parentheses.
+powershell -NoProfile -ExecutionPolicy Bypass -File %*
+set "PS_RC=!ERRORLEVEL!"
+exit /b !PS_RC!
+
 :blank
-powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Blank
+call :run_ps_file "!ROOT!\ui_line.ps1" -Mode Blank
 exit /b 0
 
 :yellow
-powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Yellow -Text "!UITEXT!"
+call :run_ps_file "!ROOT!\ui_line.ps1" -Mode Yellow -Text "!UITEXT!"
 exit /b 0
 
 :red
-powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Red -Text "!UITEXT!"
+call :run_ps_file "!ROOT!\ui_line.ps1" -Mode Red -Text "!UITEXT!"
 exit /b 0
 
 :describe_bucks_mode
@@ -95,11 +109,8 @@ if defined LOADED_AMOUNT if not defined LOADED_AMOUNT_INVALID if "!LOADED_AMOUNT
 exit /b 0
 
 :save_settings
->"!SETTINGS_FILE!" (
-  echo BUCKS_MODE=!BUCKS_MODE!
-  echo CUSTOM_AMOUNT=!CUSTOM_AMOUNT!
-  echo CUSTOM_FREQUENCY=!CUSTOM_FREQUENCY!
-)
+REM Avoid CMD redirect blocks with parentheses in the folder path.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:SETTINGS_FILE; @( 'BUCKS_MODE=' + $env:BUCKS_MODE; 'CUSTOM_AMOUNT=' + $env:CUSTOM_AMOUNT; 'CUSTOM_FREQUENCY=' + $env:CUSTOM_FREQUENCY ) | Set-Content -LiteralPath $p -Encoding ASCII"
 exit /b 0
 
 
@@ -119,8 +130,9 @@ exit 1
 
 
 :bucks_options
+cd /d "!ROOT!"
 call :describe_bucks_mode
-powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\launcher_ui.ps1" -Menu Bucks -BucksDescription "!BUCKS_DESCRIPTION!"
+call :run_ps_file "!ROOT!\launcher_ui.ps1" -Menu Bucks -BucksDescription "!BUCKS_DESCRIPTION!"
 set "OPTION_CHOICE=!ERRORLEVEL!"
 if "!OPTION_CHOICE!"=="4" goto main_menu
 if "!OPTION_CHOICE!"=="3" goto custom_bucks
@@ -199,6 +211,7 @@ exit /b 0
 
 :patch_manifest
 cls
+cd /d "!ROOT!"
 call :banner
 call "!ROOT!\resolve_python.cmd"
 set "RC=!ERRORLEVEL!"
@@ -256,6 +269,7 @@ goto main_menu
 
 :play
 cls
+cd /d "!ROOT!"
 call :banner
 call "!ROOT!\resolve_python.cmd"
 set "RC=!ERRORLEVEL!"
@@ -325,9 +339,8 @@ call :yellow
 goto start_server
 
 :bluestacks_setup
-if exist "C:\Program Files\BlueStacks_nxt\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
-if not defined ADB_EXE if exist "C:\Program Files\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks\HD-Adb.exe"
-if not defined ADB_EXE if exist "C:\Program Files (x86)\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files (x86)\BlueStacks\HD-Adb.exe"
+set "ADB_EXE="
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$cands=@((Join-Path ${env:ProgramFiles} 'BlueStacks_nxt\HD-Adb.exe'),(Join-Path ${env:ProgramFiles} 'BlueStacks\HD-Adb.exe'),(Join-Path ${env:ProgramFiles(x86)} 'BlueStacks\HD-Adb.exe')); foreach($p in $cands){ if(Test-Path -LiteralPath $p){ Write-Output $p; break } }"`) do set "ADB_EXE=%%A"
 if not defined ADB_EXE (
   set "UITEXT=BlueStacks was not found. Starting without clock sync."
   call :yellow
@@ -407,29 +420,28 @@ if not exist "!ROOT!\cache_files\" (
   exit /b 1
 )
 set "HAVE_PACKS="
-for %%F in ("!ROOT!\cache_files\*.dab" "!ROOT!\cache_files\*.dhr" "!ROOT!\cache_files\*.dsb") do (
-  if exist "%%~fF" set "HAVE_PACKS=1"
-)
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=Join-Path $env:ROOT 'cache_files'; if(Test-Path -LiteralPath $d){ Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(dab|dhr|dsb)$' } | Select-Object -First 1 -ExpandProperty FullName }"`) do set "HAVE_PACKS=1"
 set "PATCH_EXTRA="
-if not defined HAVE_PACKS (
-  if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" (
-    call :blank
-    set "UITEXT=No cache packs found. Using your existing connection files."
-    call :yellow
-    set "PATCH_EXTRA=--ip-only"
-  ) else (
-    cls
-    call :banner
-    call :blank
-    set "UITEXT=No game cache packs were found."
-    call :yellow
-    set "UITEXT=Put your .dab / .dhr / .dsb files in the cache_files folder,"
-    call :yellow
-    set "UITEXT=then use [2] First-time setup, or press [1] again."
-    call :yellow
-    exit /b 1
-  )
-)
+if not defined HAVE_PACKS goto ensure_no_packs
+goto ensure_have_packs_done
+:ensure_no_packs
+if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" goto ensure_ip_only
+cls
+call :banner
+call :blank
+set "UITEXT=No game cache packs were found."
+call :yellow
+set "UITEXT=Put your .dab / .dhr / .dsb files in the cache_files folder,"
+call :yellow
+set "UITEXT=then use [2] First-time setup, or press [1] again."
+call :yellow
+exit /b 1
+:ensure_ip_only
+call :blank
+set "UITEXT=No cache packs found. Using your existing connection files."
+call :yellow
+set "PATCH_EXTRA=--ip-only"
+:ensure_have_packs_done
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
