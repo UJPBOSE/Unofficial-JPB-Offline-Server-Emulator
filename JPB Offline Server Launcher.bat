@@ -5,8 +5,9 @@ chcp 65001 >nul
 title Unofficial Jurassic Park Builder - Offline Server
 color 07
 cd /d "%~dp0"
-if not exist "%~dp0launcher_main.ps1" goto missing_main
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher_main.ps1"
+if not exist ".\launcher_main.ps1" goto missing_main
+REM Use a relative -File path after cd so spaces in the folder name cannot split argv.
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\launcher_main.ps1"
 set "EXITCODE=%ERRORLEVEL%"
 if not "%EXITCODE%"=="0" pause
 exit /b %EXITCODE%

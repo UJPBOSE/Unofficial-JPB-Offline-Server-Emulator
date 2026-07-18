@@ -265,14 +265,18 @@ function Get-BlueStacksSerial([string]$AdbExe) {
 }
 
 function Show-MenuChoice([string]$Menu) {
+  # Start-Process -ArgumentList arrays do NOT quote paths with spaces, so -File
+  # would become C:\...\Jurassic and fail. Build one properly quoted argument string.
   $desc = Get-BucksDescription
-  $p = Start-Process -FilePath "powershell.exe" -ArgumentList @(
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $UiMenu,
-    "-Menu", $Menu,
-    "-BucksDescription", $desc
-  ) -WorkingDirectory $Root -Wait -PassThru -NoNewWindow
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = (Get-Command powershell.exe).Source
+  $psi.WorkingDirectory = $Root
+  $psi.UseShellExecute = $false
+  $fileArg = $UiMenu.Replace('"', '\"')
+  $descArg = $desc.Replace('"', '\"')
+  $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$fileArg`" -Menu $Menu -BucksDescription `"$descArg`""
+  $p = [System.Diagnostics.Process]::Start($psi)
+  $p.WaitForExit()
   return [int]$p.ExitCode
 }
 

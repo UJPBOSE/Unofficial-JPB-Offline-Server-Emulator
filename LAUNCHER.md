@@ -23,3 +23,5 @@ So **all real launcher logic lives in PowerShell**, which handles those paths co
 2. Do **not** create `SUBST` drive letters for this launcher.
 3. Keep the `.bat` as a wrapper; change behavior in `launcher_main.ps1`.
 4. Test from a folder whose path has **spaces** and **parentheses** before shipping launcher edits.
+5. Never pass a spaced path to `Start-Process -ArgumentList` as a bare array entry for `-File`.  
+   PowerShell will not quote it, and the path splits on the first space. Build one quoted `Arguments` string (see `Show-MenuChoice` in `launcher_main.ps1`).
