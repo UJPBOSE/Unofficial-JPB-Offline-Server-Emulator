@@ -374,14 +374,15 @@ call :yellow
 set "ADB_ARGS=--adb-logcat --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!" --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto"
 
 :start_server
-cls
-call :banner
 call :blank
 set "UITEXT=Starting the offline server..."
 call :yellow
-set "UITEXT=Live logs will scroll below (ports, logins, saves)."
+set "UITEXT=Leave this window open while you play."
 call :yellow
-set "UITEXT=Keep this window open. Press Ctrl+C to stop."
+set "UITEXT=Press Ctrl+C here when you want to stop."
+call :yellow
+call :blank
+set "UITEXT=Live server log below (ports, logins, saves):"
 call :yellow
 call :blank
 echo.
@@ -390,10 +391,8 @@ set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
 call :yellow
-set "UITEXT=Press any key to return to the main menu."
-call :yellow
 call :blank
-pause >nul
+pause
 goto main_menu
 
 :ensure_local_generated_files
