@@ -331,7 +331,7 @@ call :yellow
 
 set "ADB_EXE="
 set "ADB_SERIAL="
-set "ADB_ARGS="
+set "USE_ADB="
 call :blank
 set "UITEXT=If you use BlueStacks, answer Y so game timers stay in sync."
 call :yellow
@@ -368,7 +368,7 @@ if not defined ADB_SERIAL (
 )
 set "UITEXT=BlueStacks connected. Clock sync is on."
 call :yellow
-set "ADB_ARGS=--adb-logcat --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto --adb-path !ADB_EXE! --adb-serial !ADB_SERIAL!"
+set "USE_ADB=1"
 
 :start_server
 REM Always assign concrete values here. Empty MAIL_POLICY breaks argparse.
@@ -391,7 +391,12 @@ set "UITEXT=Live server log below (ports, logins, saves):"
 call :yellow
 call :blank
 echo.
-"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
+REM Quote --adb-path separately; Program Files must not split into extra argv tokens.
+if defined USE_ADB if defined ADB_EXE if defined ADB_SERIAL (
+  "!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options --adb-logcat --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!"
+) else (
+  "!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options
+)
 set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
