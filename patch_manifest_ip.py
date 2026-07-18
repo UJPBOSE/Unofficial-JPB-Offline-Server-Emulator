@@ -470,7 +470,13 @@ def patch_manifest_ip(
     return 0
 
 
-def run(lan_ip, regenerate=False, force_onlineoptions=False, output=print):
+def run(
+    lan_ip,
+    regenerate=False,
+    force_onlineoptions=False,
+    ip_only=False,
+    output=print,
+):
     oo_rc = generate_onlineoptions(
         output=output,
         force=force_onlineoptions or regenerate or not os.path.isfile(ONLINE_OPTIONS_FILE),
@@ -480,11 +486,18 @@ def run(lan_ip, regenerate=False, force_onlineoptions=False, output=print):
 
     need_generate = regenerate or not os.path.isfile(MANIFEST_FILE)
     if need_generate:
+        if ip_only:
+            output(
+                f"Missing {MANIFEST_FILE}; cannot use --ip-only without an existing manifest."
+            )
+            return 1
         document, rc = build_manifest_from_cache(lan_ip, output=output)
         if rc != 0:
             return rc
         return write_manifest(document, output=output)
 
+    if ip_only:
+        return patch_manifest_ip(lan_ip, output=output, cache_dir=False)
     return patch_manifest_ip(lan_ip, output=output)
 
 
@@ -492,31 +505,39 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     regenerate = False
     force_onlineoptions = False
+    ip_only = False
     filtered = []
     for arg in argv:
         if arg in ("--regenerate", "-r"):
             regenerate = True
         elif arg in ("--force-onlineoptions",):
             force_onlineoptions = True
+        elif arg in ("--ip-only",):
+            ip_only = True
         elif arg in ("-h", "--help"):
             print(
-                "Usage: python patch_manifest_ip.py NEW_PC_LAN_IP [--regenerate]\n"
+                "Usage: python patch_manifest_ip.py NEW_PC_LAN_IP [--regenerate] [--ip-only]\n"
                 "Example: python patch_manifest_ip.py 192.168.0.42\n\n"
                 "Generates local fixed_manifest.json from cache_files/ and\n"
                 "onlineoptions from built-in defaults when missing.\n"
-                "Use --regenerate to rebuild both from sources even if present."
+                "Use --regenerate to rebuild both from sources even if present.\n"
+                "Use --ip-only to update an existing manifest IP without cache packs."
             )
             return 0
         else:
             filtered.append(arg)
     if len(filtered) != 1:
-        print("Usage: python patch_manifest_ip.py NEW_PC_LAN_IP [--regenerate]")
+        print("Usage: python patch_manifest_ip.py NEW_PC_LAN_IP [--regenerate] [--ip-only]")
         print("Example: python patch_manifest_ip.py 192.168.0.42")
+        return 2
+    if ip_only and regenerate:
+        print("Choose only one of --ip-only or --regenerate.")
         return 2
     return run(
         filtered[0],
         regenerate=regenerate,
         force_onlineoptions=force_onlineoptions,
+        ip_only=ip_only,
     )
 
 

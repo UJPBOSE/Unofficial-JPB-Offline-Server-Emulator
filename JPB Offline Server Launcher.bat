@@ -291,6 +291,7 @@ if defined LAN_IP (
 
 call :ensure_local_generated_files
 if errorlevel 1 (
+  call :blank
   pause
   goto main_menu
 )
@@ -367,6 +368,9 @@ goto main_menu
 :: Build gitignored fixed_manifest.json + onlineoptions on Play when missing,
 :: or refresh the manifest IP to the detected LAN address.
 if not defined LAN_IP (
+  cls
+  call :banner
+  call :blank
   set "UITEXT=Could not detect your PC's network address."
   call :yellow
   set "UITEXT=Use menu [2] First-time setup and type your IPv4 manually,"
@@ -376,20 +380,52 @@ if not defined LAN_IP (
   exit /b 1
 )
 if not exist "%~dp0cache_files\" (
+  cls
+  call :banner
+  call :blank
   set "UITEXT=Missing cache_files folder."
   call :yellow
   set "UITEXT=Put your own cache packs in cache_files, then try again."
   call :yellow
   exit /b 1
 )
+set "HAVE_PACKS="
+for %%F in ("%~dp0cache_files\*.dab" "%~dp0cache_files\*.dhr" "%~dp0cache_files\*.dsb") do (
+  if exist "%%~fF" set "HAVE_PACKS=1"
+)
+set "PATCH_ARGS=!LAN_IP!"
+if not defined HAVE_PACKS (
+  if exist "%~dp0fixed_manifest.json" if exist "%~dp0onlineoptions" (
+    call :blank
+    set "UITEXT=No cache packs found. Using your existing connection files."
+    call :yellow
+    set "PATCH_ARGS=!LAN_IP! --ip-only"
+  ) else (
+    cls
+    call :banner
+    call :blank
+    set "UITEXT=No game cache packs were found."
+    call :yellow
+    set "UITEXT=Put your .dab / .dhr / .dsb files in the cache_files folder,"
+    call :yellow
+    set "UITEXT=then use [2] First-time setup, or press [1] again."
+    call :yellow
+    exit /b 1
+  )
+)
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
-"!PYTHON_EXE!" "%~dp0patch_manifest_ip.py" "!LAN_IP!"
+"!PYTHON_EXE!" "%~dp0patch_manifest_ip.py" !PATCH_ARGS!
 if errorlevel 1 (
+  cls
+  call :banner
+  call :blank
   set "UITEXT=Could not create connection files."
   call :yellow
-  set "UITEXT=Make sure cache_files has your .dab / .dhr / .dsb packs."
+  set "UITEXT=Make sure cache_files has your .dab / .dhr / .dsb packs,"
+  call :yellow
+  set "UITEXT=then try [2] First-time setup."
   call :yellow
   exit /b 1
 )
