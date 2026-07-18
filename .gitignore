@@ -34,3 +34,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .venv/
+
+patch_last_run.log
+

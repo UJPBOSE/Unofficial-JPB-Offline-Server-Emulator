@@ -374,21 +374,26 @@ call :yellow
 set "ADB_ARGS=--adb-logcat --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!" --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto"
 
 :start_server
+cls
+call :banner
 call :blank
 set "UITEXT=Starting the offline server..."
 call :yellow
-set "UITEXT=Leave this window open while you play."
+set "UITEXT=Live logs will scroll below (ports, logins, saves)."
 call :yellow
-set "UITEXT=Press Ctrl+C here when you want to stop."
+set "UITEXT=Keep this window open. Press Ctrl+C to stop."
 call :yellow
 call :blank
-"!PYTHON_EXE!" "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy "!MAIL_POLICY!" --hardcash-gift-amount "!MAIL_AMOUNT!" --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS! %*
+echo.
+"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy "!MAIL_POLICY!" --hardcash-gift-amount "!MAIL_AMOUNT!" --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS! %*
 set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
 call :yellow
+set "UITEXT=Press any key to return to the main menu."
+call :yellow
 call :blank
-pause
+pause >nul
 goto main_menu
 
 :ensure_local_generated_files
@@ -417,8 +422,15 @@ if not exist "!ROOT!\cache_files\" (
   exit /b 1
 )
 set "HAVE_PACKS="
-for %%F in ("!ROOT!\cache_files\*.dab" "!ROOT!\cache_files\*.dhr" "!ROOT!\cache_files\*.dsb") do (
-  if exist "%%~fF" set "HAVE_PACKS=1"
+dir /b "!ROOT!\cache_files\*.dab" >nul 2>&1
+if not errorlevel 1 set "HAVE_PACKS=1"
+if not defined HAVE_PACKS (
+  dir /b "!ROOT!\cache_files\*.dhr" >nul 2>&1
+  if not errorlevel 1 set "HAVE_PACKS=1"
+)
+if not defined HAVE_PACKS (
+  dir /b "!ROOT!\cache_files\*.dsb" >nul 2>&1
+  if not errorlevel 1 set "HAVE_PACKS=1"
 )
 set "PATCH_ARGS=!LAN_IP!"
 if not defined HAVE_PACKS (
@@ -443,7 +455,7 @@ if not defined HAVE_PACKS (
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
-"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" !PATCH_ARGS!
+"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" !PATCH_ARGS! >"!ROOT!\patch_last_run.log" 2>&1
 if errorlevel 1 (
   cls
   call :banner
@@ -454,6 +466,11 @@ if errorlevel 1 (
   call :yellow
   set "UITEXT=then try [2] First-time setup."
   call :yellow
+  if exist "!ROOT!\patch_last_run.log" (
+    call :blank
+    set "UITEXT=Details were saved to patch_last_run.log"
+    call :yellow
+  )
   exit /b 1
 )
 exit /b 0

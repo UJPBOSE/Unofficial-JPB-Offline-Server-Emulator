@@ -27677,11 +27677,19 @@ def main():
     for port, server in listeners:
         threading.Thread(target=serve_socket, args=(server, port, args, logger.write, cid_counter), daemon=True).start()
 
+    listening_ports = ", ".join(str(port) for port, _server in listeners)
+    logger.write("=" * 68)
+    logger.write(f"[BOOT] Offline server ready. Listening on: {listening_ports}")
+    logger.write(f"[BOOT] Save folder: {SAVE_DIR}")
+    logger.write("[BOOT] Keep this window open while you play.")
+    logger.write("[BOOT] Press Ctrl+C in this window to stop the server.")
+    logger.write("=" * 68)
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.write("[BOOT] shutdown requested")
+        logger.write("[BOOT] shutdown requested (Ctrl+C)")
     finally:
         if logcat_proc is not None and logcat_proc.poll() is None:
             logcat_proc.terminate()
