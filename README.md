@@ -175,7 +175,7 @@ Your client build may contact additional or different hostnames. Prefer confirmi
 
 1. Clone this GitHub repository.
 2. Put **your own** cache files into the `cache_files/` folder (do not commit them).
-3. Start `JPB Offline Server Launcher.bat`.
+3. Start `JPB Offline Server Launcher.bat` (it runs `launcher_main.ps1` from the same folder — see [`LAUNCHER.md`](LAUNCHER.md)).
 4. Press **[2] Generate / Patch Manifest** to create local `fixed_manifest.json` and `onlineoptions` (these are generated on your machine and are **not** shipped in the repo).
 5. When prompted for the PC IPv4 address:
   - The launcher may show a **detected** LAN IP — you can accept that, **or**
