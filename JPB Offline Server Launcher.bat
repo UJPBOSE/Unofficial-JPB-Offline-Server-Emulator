@@ -299,10 +299,10 @@ call :yellow
 set "UITEXT=Stopping any old server still running..."
 call :yellow
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*JPB_Offline_Server_Emulator.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-set "UITEXT=Freeing ports 80, 9933, and 9943 if needed..."
+set "UITEXT=Checking for leftover emulator processes..."
 call :yellow
-REM Timed port cleanup only - old netstat FOR loops could hang forever here.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$job=Start-Job -ScriptBlock { $ErrorActionPreference='SilentlyContinue'; foreach($port in 80,9933,9943){ Get-NetTCPConnection -LocalPort $port -State Listen | ForEach-Object { $procId=$_.OwningProcess; if($procId -gt 4){ $proc=Get-Process -Id $procId; if($proc -and ($proc.ProcessName -match '^(python|py)$')){ Stop-Process -Id $procId -Force } } } } }; Wait-Job $job -Timeout 4 | Out-Null; Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force -ErrorAction SilentlyContinue"
+REM Port scanning via netstat FOR-loops can hang forever on some PCs.
+REM Stopping the emulator process above is enough; bind errors will show in the live log.
 
 call :detect_lan_ip
 ver >nul
