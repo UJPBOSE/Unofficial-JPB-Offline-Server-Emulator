@@ -298,12 +298,11 @@ set "UITEXT=Preparing to start..."
 call :yellow
 set "UITEXT=Stopping any old server still running..."
 call :yellow
-powershell -NoProfile -Command "for ($pass = 0; $pass -lt 3; $pass++) { Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*JPB_Offline_Server_Emulator.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 250 }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*JPB_Offline_Server_Emulator.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 set "UITEXT=Freeing ports 80, 9933, and 9943 if needed..."
 call :yellow
-for %%P in (80 9933 9943) do (
-  for /f "tokens=5" %%A in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do taskkill /F /PID %%A >nul 2>&1
-)
+REM Timed port cleanup only - old netstat FOR loops could hang forever here.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$job=Start-Job -ScriptBlock { $ErrorActionPreference='SilentlyContinue'; foreach($port in 80,9933,9943){ Get-NetTCPConnection -LocalPort $port -State Listen | ForEach-Object { $procId=$_.OwningProcess; if($procId -gt 4){ $proc=Get-Process -Id $procId; if($proc -and ($proc.ProcessName -match '^(python|py)$')){ Stop-Process -Id $procId -Force } } } } }; Wait-Job $job -Timeout 4 | Out-Null; Stop-Job $job -ErrorAction SilentlyContinue; Remove-Job $job -Force -ErrorAction SilentlyContinue"
 
 call :detect_lan_ip
 ver >nul
