@@ -1,0 +1,36 @@
+# Keep empty folders in git; ignore everything inside them
+cache_files/**
+!cache_files/.gitkeep
+
+guest_saves/**
+!guest_saves/.gitkeep
+
+logs/**
+!logs/.gitkeep
+
+# Generated locally by the launcher / patch helper — do not commit
+fixed_manifest.json
+onlineoptions
+onlineoptions.orig
+*.pre-ip-patch.bak
+
+# Common game / binary dumps (never commit, even outside those folders)
+*.apk
+*.apks
+*.xapk
+*.aab
+*.ipa
+*.obb
+*.dab
+*.dhr
+*.dsb
+*.so
+*.dex
+
+# Local runtime / personal
+launcher_settings.ini
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+.venv/
