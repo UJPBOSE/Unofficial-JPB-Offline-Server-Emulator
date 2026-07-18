@@ -325,16 +325,6 @@ if not "!RC!"=="0" (
   goto main_menu
 )
 
-set "MAIL_POLICY=legit"
-set "MAIL_AMOUNT=5"
-if /I "!BUCKS_MODE!"=="sandbox" (
-  set "MAIL_POLICY=sandbox_once"
-  set "MAIL_AMOUNT=99999999"
-)
-if /I "!BUCKS_MODE!"=="custom" (
-  set "MAIL_POLICY=!CUSTOM_FREQUENCY!"
-  set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
-)
 call :describe_bucks_mode
 set "UITEXT=Bucks rewards: !BUCKS_DESCRIPTION!"
 call :yellow
@@ -350,12 +340,15 @@ call :yellow
 call :blank
 set "UITEXT=Use BlueStacks clock sync? [Y/N]:"
 call :yellow
-choice /C YN /N
-if errorlevel 2 (
-  set "UITEXT=Starting without BlueStacks sync."
-  call :yellow
-  goto start_server
-)
+set "BS_ANSWER="
+set /p "BS_ANSWER="
+if /I "!BS_ANSWER!"=="Y" goto bluestacks_setup
+if /I "!BS_ANSWER!"=="YES" goto bluestacks_setup
+set "UITEXT=Starting without BlueStacks sync."
+call :yellow
+goto start_server
+
+:bluestacks_setup
 if exist "C:\Program Files\BlueStacks_nxt\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files (x86)\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files (x86)\BlueStacks\HD-Adb.exe"
@@ -364,7 +357,9 @@ if not defined ADB_EXE (
   call :yellow
   goto start_server
 )
+set "ADB_EXE=!ADB_EXE!"
 "!ADB_EXE!" connect 127.0.0.1:5555 >nul 2>&1
+set "ADB_SERIAL="
 for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
 if not defined ADB_SERIAL (
   set "UITEXT=No BlueStacks device found. Starting without clock sync."
@@ -373,12 +368,17 @@ if not defined ADB_SERIAL (
 )
 set "UITEXT=BlueStacks connected. Clock sync is on."
 call :yellow
-set "ADB_ARGS=--adb-logcat --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!" --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto"
+set "ADB_ARGS=--adb-logcat --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto --adb-path !ADB_EXE! --adb-serial !ADB_SERIAL!"
 
 :start_server
-if not defined MAIL_POLICY set "MAIL_POLICY=legit"
-if not defined MAIL_AMOUNT set "MAIL_AMOUNT=5"
-if /I not "!MAIL_POLICY!"=="legit" if /I not "!MAIL_POLICY!"=="sandbox_once" if /I not "!MAIL_POLICY!"=="per_login" if /I not "!MAIL_POLICY!"=="daily" set "MAIL_POLICY=legit"
+REM Always assign concrete values here. Empty MAIL_POLICY breaks argparse.
+set "MAIL_POLICY=legit"
+set "MAIL_AMOUNT=5"
+if /I "!BUCKS_MODE!"=="sandbox" set "MAIL_POLICY=sandbox_once"
+if /I "!BUCKS_MODE!"=="sandbox" set "MAIL_AMOUNT=99999999"
+if /I "!BUCKS_MODE!"=="custom" if /I "!CUSTOM_FREQUENCY!"=="daily" set "MAIL_POLICY=daily"
+if /I "!BUCKS_MODE!"=="custom" if /I "!CUSTOM_FREQUENCY!"=="per_login" set "MAIL_POLICY=per_login"
+if /I "!BUCKS_MODE!"=="custom" if not "!CUSTOM_AMOUNT!"=="" set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
 call :blank
 set "UITEXT=Starting the offline server..."
 call :yellow
@@ -391,7 +391,7 @@ set "UITEXT=Live server log below (ports, logins, saves):"
 call :yellow
 call :blank
 echo.
-"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy "!MAIL_POLICY!" --hardcash-gift-amount "!MAIL_AMOUNT!" --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
+"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
 set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
