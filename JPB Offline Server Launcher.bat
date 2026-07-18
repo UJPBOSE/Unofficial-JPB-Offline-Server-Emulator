@@ -12,8 +12,11 @@ set "SUBST_DRIVE="
 for %%I in (".") do set "ROOT=%%~sI"
 if not defined ROOT set "ROOT=%CD%"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
-echo !ROOT! | find "(" >nul
-if not errorlevel 1 (
+REM Map a drive letter when the folder path has spaces or parentheses.
+set "NEED_SUBST="
+echo "!CD!" | findstr /R "[() ]" >nul
+if not errorlevel 1 set "NEED_SUBST=1"
+if defined NEED_SUBST (
   for %%D in (J K L M N O P Q R S T U V W X Y Z) do (
     if not defined SUBST_DRIVE if not exist "%%D:\" (
       subst %%D: "!CD!" >nul 2>&1
@@ -299,10 +302,6 @@ call :yellow
 set "UITEXT=Stopping any old server still running..."
 call :yellow
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'python*.exe' -and $_.CommandLine -like '*JPB_Offline_Server_Emulator.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
-set "UITEXT=Checking for leftover emulator processes..."
-call :yellow
-REM Port scanning via netstat FOR-loops can hang forever on some PCs.
-REM Stopping the emulator process above is enough; bind errors will show in the live log.
 
 call :detect_lan_ip
 ver >nul
@@ -322,7 +321,16 @@ if not "!RC!"=="0" (
   goto main_menu
 )
 
-call :apply_mail_policy
+set "MAIL_POLICY=legit"
+set "MAIL_AMOUNT=5"
+if /I "!BUCKS_MODE!"=="sandbox" (
+  set "MAIL_POLICY=sandbox_once"
+  set "MAIL_AMOUNT=99999999"
+)
+if /I "!BUCKS_MODE!"=="custom" (
+  set "MAIL_POLICY=!CUSTOM_FREQUENCY!"
+  set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
+)
 call :describe_bucks_mode
 set "UITEXT=Bucks rewards: !BUCKS_DESCRIPTION!"
 call :yellow
@@ -338,16 +346,12 @@ call :yellow
 call :blank
 set "UITEXT=Use BlueStacks clock sync? [Y/N]:"
 call :yellow
-set "BS_ANSWER="
-set /p "BS_ANSWER="
-if /I "!BS_ANSWER!"=="Y" goto bluestacks_setup
-if /I "!BS_ANSWER!"=="YES" goto bluestacks_setup
-set "UITEXT=Starting without BlueStacks sync."
-call :yellow
-goto start_server
-
-:bluestacks_setup
-set "ADB_EXE="
+choice /C YN /N
+if errorlevel 2 (
+  set "UITEXT=Starting without BlueStacks sync."
+  call :yellow
+  goto start_server
+)
 if exist "C:\Program Files\BlueStacks_nxt\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks_nxt\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files\BlueStacks\HD-Adb.exe"
 if not defined ADB_EXE if exist "C:\Program Files (x86)\BlueStacks\HD-Adb.exe" set "ADB_EXE=C:\Program Files (x86)\BlueStacks\HD-Adb.exe"
@@ -356,10 +360,8 @@ if not defined ADB_EXE (
   call :yellow
   goto start_server
 )
-set "ADB_EXE_ENV=!ADB_EXE!"
 "!ADB_EXE!" connect 127.0.0.1:5555 >nul 2>&1
-set "ADB_SERIAL="
-for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE_ENV; if (-not $adb) { $adb=$env:ADB_EXE }; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$adb=$env:ADB_EXE; $preferred=@('emulator-5554','127.0.0.1:5555'); $lines=& $adb devices 2>$null; $devices=@(); foreach($line in $lines){ if($line -match '^(\S+)\s+device$'){ $devices += $matches[1] } }; foreach($p in $preferred){ if($devices -contains $p){ Write-Output $p; exit 0 } }; if($devices.Count -gt 0){ Write-Output $devices[0] }"`) do set "ADB_SERIAL=%%S"
 if not defined ADB_SERIAL (
   set "UITEXT=No BlueStacks device found. Starting without clock sync."
   call :yellow
@@ -367,11 +369,12 @@ if not defined ADB_SERIAL (
 )
 set "UITEXT=BlueStacks connected. Clock sync is on."
 call :yellow
-REM Build args without nested quotes so paths with spaces stay intact.
-set "ADB_ARGS=--adb-logcat --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto --adb-path !ADB_EXE! --adb-serial !ADB_SERIAL!"
+set "ADB_ARGS=--adb-logcat --adb-path "!ADB_EXE!" --adb-serial "!ADB_SERIAL!" --sync-adb-clock --adb-clock-max-drift-seconds 5 --adb-clock-sync-interval-seconds 60 --adb-timezone auto"
 
 :start_server
-call :apply_mail_policy
+if not defined MAIL_POLICY set "MAIL_POLICY=legit"
+if not defined MAIL_AMOUNT set "MAIL_AMOUNT=5"
+if /I not "!MAIL_POLICY!"=="legit" if /I not "!MAIL_POLICY!"=="sandbox_once" if /I not "!MAIL_POLICY!"=="per_login" if /I not "!MAIL_POLICY!"=="daily" set "MAIL_POLICY=legit"
 call :blank
 set "UITEXT=Starting the offline server..."
 call :yellow
@@ -384,7 +387,7 @@ set "UITEXT=Live server log below (ports, logins, saves):"
 call :yellow
 call :blank
 echo.
-"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy !MAIL_POLICY! --hardcash-gift-amount !MAIL_AMOUNT! --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
+"!PYTHON_EXE!" -u "!SERVER_SCRIPT!" --host 0.0.0.0 --game-services-mode generic --composite-profile savegame --mail-mode hardcash --hardcash-gift-policy "!MAIL_POLICY!" --hardcash-gift-amount "!MAIL_AMOUNT!" --friend-mode random_user_stub --post-login-push online_options !ADB_ARGS!
 set "SERVER_EXIT=!ERRORLEVEL!"
 call :blank
 set "UITEXT=Server stopped (code !SERVER_EXIT!)."
@@ -392,24 +395,6 @@ call :yellow
 call :blank
 pause
 goto main_menu
-
-:apply_mail_policy
-set "MAIL_POLICY=legit"
-set "MAIL_AMOUNT=5"
-if /I "!BUCKS_MODE!"=="sandbox" (
-  set "MAIL_POLICY=sandbox_once"
-  set "MAIL_AMOUNT=99999999"
-)
-if /I "!BUCKS_MODE!"=="custom" (
-  if /I "!CUSTOM_FREQUENCY!"=="daily" set "MAIL_POLICY=daily"
-  if /I "!CUSTOM_FREQUENCY!"=="per_login" set "MAIL_POLICY=per_login"
-  if defined CUSTOM_AMOUNT set "MAIL_AMOUNT=!CUSTOM_AMOUNT!"
-)
-if /I not "!MAIL_POLICY!"=="legit" if /I not "!MAIL_POLICY!"=="sandbox_once" if /I not "!MAIL_POLICY!"=="per_login" if /I not "!MAIL_POLICY!"=="daily" (
-  set "MAIL_POLICY=legit"
-  set "MAIL_AMOUNT=5"
-)
-exit /b 0
 
 :ensure_local_generated_files
 :: Build gitignored fixed_manifest.json + onlineoptions on Play when missing,
@@ -437,23 +422,16 @@ if not exist "!ROOT!\cache_files\" (
   exit /b 1
 )
 set "HAVE_PACKS="
-dir /b "!ROOT!\cache_files\*.dab" >nul 2>&1
-if not errorlevel 1 set "HAVE_PACKS=1"
-if not defined HAVE_PACKS (
-  dir /b "!ROOT!\cache_files\*.dhr" >nul 2>&1
-  if not errorlevel 1 set "HAVE_PACKS=1"
+for %%F in ("!ROOT!\cache_files\*.dab" "!ROOT!\cache_files\*.dhr" "!ROOT!\cache_files\*.dsb") do (
+  if exist "%%~fF" set "HAVE_PACKS=1"
 )
-if not defined HAVE_PACKS (
-  dir /b "!ROOT!\cache_files\*.dsb" >nul 2>&1
-  if not errorlevel 1 set "HAVE_PACKS=1"
-)
-set "PATCH_ARGS=!LAN_IP!"
+set "PATCH_EXTRA="
 if not defined HAVE_PACKS (
   if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" (
     call :blank
     set "UITEXT=No cache packs found. Using your existing connection files."
     call :yellow
-    set "PATCH_ARGS=!LAN_IP! --ip-only"
+    set "PATCH_EXTRA=--ip-only"
   ) else (
     cls
     call :banner
@@ -470,7 +448,7 @@ if not defined HAVE_PACKS (
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
-"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" !PATCH_ARGS! >"!ROOT!\patch_last_run.log" 2>&1
+"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" "!LAN_IP!" !PATCH_EXTRA!
 if errorlevel 1 (
   cls
   call :banner
@@ -481,11 +459,6 @@ if errorlevel 1 (
   call :yellow
   set "UITEXT=then try [2] First-time setup."
   call :yellow
-  if exist "!ROOT!\patch_last_run.log" (
-    call :blank
-    set "UITEXT=Details were saved to patch_last_run.log"
-    call :yellow
-  )
   exit /b 1
 )
 exit /b 0
