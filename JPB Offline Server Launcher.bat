@@ -5,16 +5,23 @@ title Unofficial Jurassic Park Builder - Offline Server
 cd /d "%~dp0"
 color 07
 
+REM Prefer 8.3 short path so folder names like "New folder (3)" cannot break IF/FOR parsing.
+set "ROOT=%CD%"
+for %%I in (".") do set "ROOT=%%~sI"
+if not defined ROOT set "ROOT=%CD%"
+if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+
 set "SERVER_SCRIPT=JPB_Offline_Server_Emulator.py"
-set "SETTINGS_FILE=%~dp0launcher_settings.ini"
+set "SETTINGS_FILE=!ROOT!\launcher_settings.ini"
 set "PYTHON_EXE="
 call :load_settings
 call :ensure_ui_files
 
 :main_menu
 call :describe_bucks_mode
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher_ui.ps1" -Menu Main -BucksDescription "!BUCKS_DESCRIPTION!"
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\launcher_ui.ps1" -Menu Main -BucksDescription "!BUCKS_DESCRIPTION!"
 set "MENU_CHOICE=!ERRORLEVEL!"
+ver >nul
 if "!MENU_CHOICE!"=="4" goto exit_launcher
 if "!MENU_CHOICE!"=="3" goto bucks_options
 if "!MENU_CHOICE!"=="2" goto patch_manifest
@@ -36,15 +43,15 @@ call :red
 exit /b 0
 
 :blank
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ui_line.ps1" -Mode Blank
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Blank
 exit /b 0
 
 :yellow
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ui_line.ps1" -Mode Yellow -Text "!UITEXT!"
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Yellow -Text "!UITEXT!"
 exit /b 0
 
 :red
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ui_line.ps1" -Mode Red -Text "!UITEXT!"
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\ui_line.ps1" -Mode Red -Text "!UITEXT!"
 exit /b 0
 
 :describe_bucks_mode
@@ -100,7 +107,7 @@ exit /b 0
 
 
 :ensure_ui_files
-if exist "%~dp0launcher_ui.ps1" if exist "%~dp0ui_line.ps1" if exist "%~dp0resolve_python.cmd" exit /b 0
+if exist "!ROOT!\launcher_ui.ps1" if exist "!ROOT!\ui_line.ps1" if exist "!ROOT!\resolve_python.cmd" exit /b 0
 echo.
 echo Missing launcher files next to this .bat:
 echo   launcher_ui.ps1
@@ -115,7 +122,7 @@ exit 1
 
 :bucks_options
 call :describe_bucks_mode
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0launcher_ui.ps1" -Menu Bucks -BucksDescription "!BUCKS_DESCRIPTION!"
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!\launcher_ui.ps1" -Menu Bucks -BucksDescription "!BUCKS_DESCRIPTION!"
 set "OPTION_CHOICE=!ERRORLEVEL!"
 if "!OPTION_CHOICE!"=="4" goto main_menu
 if "!OPTION_CHOICE!"=="3" goto custom_bucks
@@ -142,8 +149,9 @@ if "!OPTION_CHOICE!"=="1" (
 goto bucks_options
 
 :custom_bucks
-call "%~dp0resolve_python.cmd"
-if errorlevel 1 (
+call "!ROOT!\resolve_python.cmd"
+set "RC=!ERRORLEVEL!"
+if not "!RC!"=="0" (
   pause
   goto bucks_options
 )
@@ -194,8 +202,9 @@ exit /b 0
 :patch_manifest
 cls
 call :banner
-call "%~dp0resolve_python.cmd"
-if errorlevel 1 (
+call "!ROOT!\resolve_python.cmd"
+set "RC=!ERRORLEVEL!"
+if not "!RC!"=="0" (
   pause
   goto main_menu
 )
@@ -231,7 +240,7 @@ call :blank
 set "UITEXT=Creating local connection files..."
 call :yellow
 call :blank
-"!PYTHON_EXE!" "%~dp0patch_manifest_ip.py" "!MANIFEST_IP!"
+"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" "!MANIFEST_IP!"
 set "PATCH_EXIT=!ERRORLEVEL!"
 call :blank
 if "!PATCH_EXIT!"=="0" (
@@ -250,8 +259,9 @@ goto main_menu
 :play
 cls
 call :banner
-call "%~dp0resolve_python.cmd"
-if errorlevel 1 (
+call "!ROOT!\resolve_python.cmd"
+set "RC=!ERRORLEVEL!"
+if not "!RC!"=="0" (
   pause
   goto main_menu
 )
@@ -281,6 +291,7 @@ for %%P in (80 9933 9943) do (
 )
 
 call :detect_lan_ip
+ver >nul
 if defined LAN_IP (
   call :blank
   set "UITEXT=Your PC address: !LAN_IP!"
@@ -290,7 +301,8 @@ if defined LAN_IP (
 )
 
 call :ensure_local_generated_files
-if errorlevel 1 (
+set "RC=!ERRORLEVEL!"
+if not "!RC!"=="0" (
   call :blank
   pause
   goto main_menu
@@ -379,7 +391,7 @@ if not defined LAN_IP (
   call :yellow
   exit /b 1
 )
-if not exist "%~dp0cache_files\" (
+if not exist "!ROOT!\cache_files\" (
   cls
   call :banner
   call :blank
@@ -390,12 +402,12 @@ if not exist "%~dp0cache_files\" (
   exit /b 1
 )
 set "HAVE_PACKS="
-for %%F in ("%~dp0cache_files\*.dab" "%~dp0cache_files\*.dhr" "%~dp0cache_files\*.dsb") do (
+for %%F in ("!ROOT!\cache_files\*.dab" "!ROOT!\cache_files\*.dhr" "!ROOT!\cache_files\*.dsb") do (
   if exist "%%~fF" set "HAVE_PACKS=1"
 )
 set "PATCH_ARGS=!LAN_IP!"
 if not defined HAVE_PACKS (
-  if exist "%~dp0fixed_manifest.json" if exist "%~dp0onlineoptions" (
+  if exist "!ROOT!\fixed_manifest.json" if exist "!ROOT!\onlineoptions" (
     call :blank
     set "UITEXT=No cache packs found. Using your existing connection files."
     call :yellow
@@ -416,7 +428,7 @@ if not defined HAVE_PACKS (
 call :blank
 set "UITEXT=Checking connection files for !LAN_IP! ..."
 call :yellow
-"!PYTHON_EXE!" "%~dp0patch_manifest_ip.py" !PATCH_ARGS!
+"!PYTHON_EXE!" "!ROOT!\patch_manifest_ip.py" !PATCH_ARGS!
 if errorlevel 1 (
   cls
   call :banner
