@@ -5,11 +5,26 @@ title Unofficial Jurassic Park Builder - Offline Server
 cd /d "%~dp0"
 color 07
 
-REM Prefer 8.3 short path so folder names like "New folder (3)" cannot break IF/FOR parsing.
+REM Folder names with parentheses (e.g. "New folder (3)") break CMD IF/FOR parsing.
+REM Prefer an 8.3 short path; if unavailable, map a temporary drive letter with SUBST.
 set "ROOT=%CD%"
+set "SUBST_DRIVE="
 for %%I in (".") do set "ROOT=%%~sI"
 if not defined ROOT set "ROOT=%CD%"
 if "!ROOT:~-1!"=="\" set "ROOT=!ROOT:~0,-1!"
+echo !ROOT! | find "(" >nul
+if not errorlevel 1 (
+  for %%D in (J K L M N O P Q R S T U V W X Y Z) do (
+    if not defined SUBST_DRIVE if not exist "%%D:\" (
+      subst %%D: "!CD!" >nul 2>&1
+      if exist "%%D:\" (
+        set "SUBST_DRIVE=%%D:"
+        set "ROOT=%%D:"
+        cd /d "%%D:\"
+      )
+    )
+  )
+)
 
 set "SERVER_SCRIPT=JPB_Offline_Server_Emulator.py"
 set "SETTINGS_FILE=!ROOT!\launcher_settings.ini"
@@ -450,6 +465,8 @@ for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$ip=(Get-NetI
 exit /b 0
 
 :exit_launcher
+if defined SUBST_DRIVE subst !SUBST_DRIVE! /d >nul 2>&1
 endlocal
 exit /b 0
+
 
