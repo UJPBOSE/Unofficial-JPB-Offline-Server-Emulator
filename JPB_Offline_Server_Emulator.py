@@ -3075,6 +3075,16 @@ def _dna_rescue_descriptor_product(value):
     return DNA_RESCUE_PRODUCTS_BY_HASH.get(product_hash)
 
 
+def _dna_rescue_deadline_ms(value):
+    """Normalize prof.134 rescue deadlines that may be seconds or milliseconds."""
+    raw = _schedule_int(value, 0) or 0
+    if raw <= 0:
+        return 0
+    if raw < 1_000_000_000_000:
+        return raw * 1000
+    return raw
+
+
 def _profile_dna_rescue_completion_product(previous_entry, incoming_entry):
     """Return the one client-proven DNA product completed by a prof write."""
     previous = saved_content(previous_entry)
@@ -3108,6 +3118,24 @@ def _profile_dna_rescue_completion_product(previous_entry, incoming_entry):
     if newly_unlocked != [descriptor_product]:
         return None
     return descriptor_product
+
+
+def _profile_dna_rescue_abandon_clear(previous_entry, incoming_entry):
+    """True when the client abandons an incomplete rescue (zeros 134/135)."""
+    previous = saved_content(previous_entry)
+    incoming = saved_content(incoming_entry)
+    if not isinstance(previous, dict) or not isinstance(incoming, dict):
+        return False
+    if _schedule_int(incoming.get("134"), 0) != 0 or _schedule_int(incoming.get("135"), 0) != 0:
+        return False
+    if not _dna_rescue_descriptor_product(previous.get("135")):
+        return False
+    if _schedule_int(previous.get("134"), 0) <= 0 and _schedule_int(previous.get("135"), 0) <= 0:
+        return False
+    # Completion unlocks the descriptor product in prof.132; abandon does not.
+    if _profile_dna_rescue_completion_product(previous_entry, incoming_entry):
+        return False
+    return True
 
 
 def composite_dna_rescue_completion_products(requests, saved):
@@ -3161,7 +3189,7 @@ def record_dna_rescue_completion_ownership(
 
 
 def repair_completed_dna_rescue_state(saved, now_ms=None, log=None, label="repair"):
-    """Clear stale rescue state only when ownership and descriptor agree."""
+    """Clear completed or expired incomplete DNA rescue state (prof.134/135)."""
     if not isinstance(saved, dict):
         return 0
     profile = saved_content(saved.get("prof"))
@@ -3170,28 +3198,41 @@ def repair_completed_dna_rescue_state(saved, now_ms=None, log=None, label="repai
     descriptor_product = _dna_rescue_descriptor_product(profile.get("135"))
     if not descriptor_product:
         return 0
+    if _schedule_int(profile.get("134"), 0) == 0 and _schedule_int(profile.get("135"), 0) == 0:
+        return 0
+    now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
     event_friday = _ownership_event_friday(now_ms)
     ledger = _creature_ownership_entries(saved, "dna")
-    if not _ledger_entry_was_acquired_this_event_week(
-        ledger.get(descriptor_product),
-        event_friday,
-    ):
-        return 0
-    if descriptor_product not in _dna_rescue_bitmap_owned_products(saved):
-        return 0
-    if _schedule_int(profile.get("134"), 0) == 0 and _schedule_int(profile.get("135"), 0) == 0:
+    completed = (
+        _ledger_entry_was_acquired_this_event_week(
+            ledger.get(descriptor_product),
+            event_friday,
+        )
+        and descriptor_product in _dna_rescue_bitmap_owned_products(saved)
+    )
+    deadline_ms = _dna_rescue_deadline_ms(profile.get("134"))
+    expired_incomplete = (not completed) and deadline_ms > 0 and now_ms >= deadline_ms
+    if not completed and not expired_incomplete:
         return 0
     previous_deadline = profile.get("134")
     previous_descriptor = profile.get("135")
     profile["134"] = 0
     profile["135"] = 0
     if log:
-        log(
-            "[DNA-RESCUE] cleared completed rescue state "
-            f"product={descriptor_product!r} event_friday={event_friday.isoformat()} "
-            f"deadline={previous_deadline!r}->0 descriptor={previous_descriptor!r}->0 "
-            f"label={label!r}"
-        )
+        if completed:
+            log(
+                "[DNA-RESCUE] cleared completed rescue state "
+                f"product={descriptor_product!r} event_friday={event_friday.isoformat()} "
+                f"deadline={previous_deadline!r}->0 descriptor={previous_descriptor!r}->0 "
+                f"label={label!r}"
+            )
+        else:
+            log(
+                "[DNA-RESCUE] cleared expired incomplete rescue state "
+                f"product={descriptor_product!r} event_friday={event_friday.isoformat()} "
+                f"deadline={previous_deadline!r}->0 descriptor={previous_descriptor!r}->0 "
+                f"now_ms={now_ms} deadline_ms={deadline_ms} label={label!r}"
+            )
     return 2
 
 
@@ -11473,9 +11514,14 @@ def _guard_direct_battle_write(
         return final_entry
     elif key == "prof":
         incoming_entry = json.loads(json.dumps(incoming_entry))
+        previous_prof = saved.get("prof") if isinstance(saved, dict) else None
         dna_rescue_completion_product = _profile_dna_rescue_completion_product(
-            saved.get("prof") if isinstance(saved, dict) else None,
+            previous_prof,
             incoming_entry,
+        )
+        dna_rescue_abandon = (
+            not dna_rescue_completion_product
+            and _profile_dna_rescue_abandon_clear(previous_prof, incoming_entry)
         )
         effective_skip_keys = tuple(profile_progress_skip_keys or ())
         if dna_rescue_completion_product:
@@ -11492,6 +11538,20 @@ def _guard_direct_battle_write(
             log(
                 "[DNA-RESCUE] direct prof write accepted completed rescue state clear "
                 f"product={dna_rescue_completion_product!r} keys=['134', '135']"
+            )
+        elif dna_rescue_abandon:
+            effective_skip_keys = tuple(dict.fromkeys(
+                effective_skip_keys + ("134", "135")
+            ))
+            previous_content = saved_content(previous_prof)
+            abandon_product = (
+                _dna_rescue_descriptor_product(previous_content.get("135"))
+                if isinstance(previous_content, dict)
+                else None
+            )
+            log(
+                "[DNA-RESCUE] direct prof write accepted abandon rescue state clear "
+                f"product={abandon_product!r} keys=['134', '135']"
             )
         remember_profile_battle_cooldown_identity(
             saved,
