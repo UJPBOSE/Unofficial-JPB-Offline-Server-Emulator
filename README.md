@@ -135,7 +135,7 @@ This project does **not** claim those marks and does **not** imply endorsement.
 2. A **user-supplied**, **clean / legitimate** old Android client you are allowed to run — **no binary patching or other client patching is needed**
 3. An Android emulator whose clock can stay aligned with the PC clock — **[BlueStacks](https://www.bluestacks.com/)** is **recommended** (see below)
 4. **User-supplied** cache files in `cache_files/`, then generate the local manifest / onlineoptions with the launcher
-5. A way to **redirect** the game’s old online hostnames to your PC’s LAN IP (see below) — still **without** modifying the APK
+5. A way to **redirect** the game’s old online hostnames to your PC (see below) — still **without** modifying the APK. On a **real Android device**, you can use **Technitium DNS + Tailscale** (personal mesh); on emulator / same LAN, **AdAway**-style hosts redirects are typical.
 
 This repo does not teach or provide illegal client acquisition.
 
@@ -166,6 +166,70 @@ jp-4-9-0-pag.ludia.net
 ```
 
 Your client build may contact additional or different hostnames. Prefer confirming what **your** install actually reaches (AdAway request log, emulator network log, etc.) and redirect those as well. Do not assume one fixed list covers every dump or version.
+
+### Playing on a real Android device (Technitium DNS + Tailscale)
+
+Use this when you want the **clean client on a physical Android phone/tablet** to talk to the emulator on your PC.  
+[Tailscale](https://tailscale.com/) builds a **private mesh** between **your** devices. [Technitium DNS Server](https://technitium.com/dns/) on the PC answers the game’s old hostnames with your PC’s Tailscale IP — still **without** patching the APK.
+
+This stays under **personal / private** use (your account, your devices). It is **not** a guide for public or community hosting.
+
+**High-level idea**
+
+1. PC runs this offline server emulator + Technitium DNS.  
+2. Phone and PC join the **same Tailscale tailnet**.  
+3. The phone uses Technitium (over Tailscale) as DNS so game hostnames resolve to the PC.  
+4. The local manifest / `onlineoptions` are generated with the PC’s **Tailscale** IPv4 (not only your home Wi‑Fi LAN IP).
+
+**1. Tailscale on PC and phone**
+
+1. Install Tailscale on the Windows PC and on the Android device.  
+2. Sign both into the **same** Tailscale account and make sure both are connected.  
+3. On the PC, note the Tailscale IPv4 (usually `100.x.x.x`) from the Tailscale app or admin console.  
+4. Confirm the phone can ping that Tailscale IP (Tailscale app / network tools).
+
+**2. Technitium DNS on the PC**
+
+1. Install **[Technitium DNS Server](https://technitium.com/dns/)** on the same PC that runs the emulator.  
+2. Open the Technitium web console and ensure the DNS service is listening so Tailscale clients can reach it (typically bind/listen on the Tailscale interface or all interfaces — see Technitium’s settings).  
+3. Allow inbound DNS (**UDP/TCP 53**) from Tailscale on the Windows firewall if needed.  
+4. Create **local primary zones** (or equivalent local records) so these names resolve to the PC’s **Tailscale** IPv4, for example:
+
+```text
+d2x9ckrb1hxif.cloudfront.net   →  A  →  <PC Tailscale IPv4>
+jp-4-9-0-pag.ludia.net         →  A  →  <PC Tailscale IPv4>
+```
+
+   One reliable pattern in Technitium is a **primary zone per hostname**, with an apex (`@`) **A** record pointing at the PC Tailscale IP.  
+5. Your client may use other hostnames — check what **your** install queries and add matching local records the same way.
+
+**3. Point the phone’s DNS at Technitium via Tailscale**
+
+1. In the [Tailscale admin DNS settings](https://login.tailscale.com/admin/dns), add a **custom nameserver** set to the PC’s Tailscale IPv4 (where Technitium is listening).  
+2. Enable **Override local DNS** (or the equivalent client option) so the Android Tailscale client actually uses that nameserver while Tailscale is connected.  
+3. On the phone, keep Tailscale **connected** while playing.  
+4. Optional check from the phone: resolve `jp-4-9-0-pag.ludia.net` / the CloudFront hostname and confirm they return the PC Tailscale IP.
+
+**4. Generate the manifest for Tailscale**
+
+1. Put your caches in `cache_files/` as usual.  
+2. In the launcher, **[2] Generate / Patch Manifest** (or `python patch_manifest_ip.py <PC-TAILSCALE-IP>`).  
+3. When asked for the PC IPv4, enter the **Tailscale** address (`100.x.x.x`), not only your home LAN IP, so asset URLs are reachable from the phone over Tailscale.  
+4. Start the emulator with **[1] Play**. Allow the game / HTTP(S) ports on the Windows firewall for Tailscale if Windows prompts you.
+
+**5. Install and run the clean client on the phone**
+
+1. Install your **own lawful** clean Android client (no APK binary patch required).  
+2. With Tailscale connected and DNS overriding to Technitium, launch the game.  
+3. It should reach the emulator on your PC the same way an emulator client does via AdAway — the redirect is DNS + private mesh instead of a local hosts VPN app.
+
+**Notes / troubleshooting**
+
+- **Same Wi‑Fi only?** AdAway (or similar) on the phone pointing at your **LAN** IP is often simpler; use Tailscale + Technitium when you want a stable path that is not tied to home Wi‑Fi routing alone.  
+- **Clock / timers:** on a real device, keep **Automatic date & time** enabled and keep the PC clock accurate. Large skew between phone and PC can still cause timer oddities (BlueStacks ADB clock sync does not apply to a physical phone).  
+- **DNS not overriding:** if hostnames still resolve to public/CDN addresses, confirm Tailscale Override DNS is on, Technitium has the local A records, and the phone is using Tailscale’s DNS path.  
+- **Assets fail but login seems to work (or the reverse):** re-check that the manifest was generated with the **same** Tailscale IP the phone can reach, and that Technitium points the game hostnames at that same IP.  
+- Reminder: this is for **your** PC and **your** device on **your** tailnet — not a public community server.
 
 ---
 
