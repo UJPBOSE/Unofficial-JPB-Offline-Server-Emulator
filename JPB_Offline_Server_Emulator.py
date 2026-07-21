@@ -4777,25 +4777,47 @@ def park_write_has_verified_client_building_removal(previous_content, incoming_c
     incoming_buildings = max(0, _as_int(incoming_content.get("60"), 0))
     object_drop = previous_objects_count - incoming_objects_count
     building_drop = previous_buildings - incoming_buildings
-    if (
-        building_drop <= 0
-        or object_drop <= building_drop
-        or incoming_buildings <= 0
-        or incoming_dinos < previous_dinos
-    ):
+    # Real sells are often 1 building + 1 object. Older logic required
+    # object_drop > building_drop, which rejected every normal sell and then
+    # repair-replay restored the sold building (mission regressions).
+    if building_drop <= 0 or incoming_buildings <= 0 or incoming_dinos < previous_dinos:
+        return False
+    # Keep wipe / corruption protection. Live sells observed in logs are small.
+    if building_drop > 8:
+        return False
+    # A sell may keep object count flat (reuse/replace) or raise it slightly when
+    # the same batch also places something else. Reject only large unexplained
+    # object inflation relative to the building drop.
+    if object_drop < 0 and (-object_drop) > building_drop + 2:
         return False
 
     previous_rows = _building_rows_by_slot(previous_content)
     incoming_rows = _building_rows_by_slot(incoming_content)
     removed_slots = sorted(set(previous_rows) - set(incoming_rows))
-    if not removed_slots or len(removed_slots) != building_drop:
+    added_slots = sorted(set(incoming_rows) - set(previous_rows))
+    if not removed_slots:
         return False
+    # Client park writes remap building object slots after a sell, so the set
+    # difference can list several "removed" and "added" slots for a single
+    # park.60 drop. Accept the net row loss matching building_drop.
+    net_removed_slots = len(removed_slots) - len(added_slots)
+    if net_removed_slots == building_drop and object_drop >= -building_drop:
+        return True
 
-    if (
-        park_write_has_verified_client_removed_building_objects(previous_content, incoming_content)
-        or park_write_looks_like_client_removed_building_slots(previous_content, incoming_content)
+    if len(removed_slots) == building_drop and (
+        park_write_has_verified_client_removed_building_objects(
+            previous_content,
+            incoming_content,
+        )
+        or park_write_looks_like_client_removed_building_slots(
+            previous_content,
+            incoming_content,
+        )
     ):
         return True
+
+    if object_drop < building_drop:
+        return False
 
     previous_objects = previous_content.get("46")
     incoming_objects = incoming_content.get("46")
@@ -4812,7 +4834,7 @@ def park_write_has_verified_client_building_removal(previous_content, incoming_c
         previous_row = previous_rows.get(slot)
         if previous_row is None or _as_int(previous_row[1], 0) == 0:
             return False
-    return True
+    return len(removed_slots) == building_drop
 
 
 def log_stale_park_write_rejected(
@@ -12801,9 +12823,7 @@ def _proven_port_cycle_change_indexes(
     incoming_park,
     ordered_record_reason="",
 ):
-    """Identify field-55 rows that prove a fresh, ordered new harbor cycle."""
-    if not ordered_record_reason:
-        return []
+    """Identify field-55 rows that prove a fresh harbor cycle / collect restart."""
     previous_values = previous_park.get("55") if isinstance(previous_park, dict) else None
     incoming_values = incoming_park.get("55") if isinstance(incoming_park, dict) else None
     if not isinstance(previous_values, list) or not isinstance(incoming_values, list):
@@ -12819,6 +12839,17 @@ def _proven_port_cycle_change_indexes(
             continue
         previous_total = previous_remaining + previous_elapsed
         incoming_total = incoming_remaining + incoming_elapsed
+        # Collect -> next shipment does not require an ordered-record proof.
+        # Blocking it leaves remaining=0 bubbles that grant nothing on tap.
+        if (
+            previous_remaining == 0
+            and incoming_remaining > 0
+            and incoming_total >= incoming_remaining
+        ):
+            proven.append(index)
+            continue
+        if not ordered_record_reason:
+            continue
         if _carried_port_cycle_elapsed_ms(
             previous_values[index],
             incoming_values[index],
@@ -12833,12 +12864,6 @@ def _proven_port_cycle_change_indexes(
         ):
             proven.append(index)
             continue
-        if (
-            previous_remaining == 0
-            and incoming_remaining > 0
-            and 0 <= incoming_elapsed <= POST_REPLAY_TIMER_RESET_MS
-        ):
-            proven.append(index)
     return proven
 
 
@@ -12961,6 +12986,24 @@ def _preserve_port_resume_progress(
             if started_active_cycle_from_idle:
                 log(
                     f"[TIME] {label} accepted new port.55[{index}] cycle from idle "
+                    f"remaining {previous_remaining}->{merged_remaining} "
+                    f"elapsed {previous_elapsed}->{merged_elapsed} "
+                    f"total {previous_total}->{merged_total}"
+                )
+                continue
+            # Complete harbour (remaining=0) -> collect and start the next
+            # shipment. The client often accrues elapsed on the new cycle before
+            # the park write lands, so a near-zero elapsed check rejects real
+            # collects and leaves remaining=0 bubbles that grant nothing.
+            # Shared by park/aqpk/arpk field 55.
+            restart_after_complete = (
+                previous_remaining == 0
+                and merged_remaining > 0
+                and merged_total >= merged_remaining
+            )
+            if restart_after_complete:
+                log(
+                    f"[TIME] {label} accepted restart-after-complete port.55[{index}] "
                     f"remaining {previous_remaining}->{merged_remaining} "
                     f"elapsed {previous_elapsed}->{merged_elapsed} "
                     f"total {previous_total}->{merged_total}"
