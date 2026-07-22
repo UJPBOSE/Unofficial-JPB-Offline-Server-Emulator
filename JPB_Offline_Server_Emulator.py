@@ -4424,13 +4424,6 @@ def park_write_rollback_reason(key, previous_content, incoming_content):
 
 
 def stale_park_write_reject_reason(key, previous_content, incoming_content):
-    rollback_reason = park_write_rollback_reason(
-        key,
-        previous_content,
-        incoming_content,
-    )
-    if rollback_reason:
-        return rollback_reason
     if key not in PARK_OFFLINE_TIMER_KEYS:
         return ""
     if not (
@@ -4439,7 +4432,9 @@ def stale_park_write_reject_reason(key, previous_content, incoming_content):
         and park_content_is_initialized(previous_content)
         and park_content_is_initialized(incoming_content)
     ):
-        return ""
+        # Keep uninitialized-vs-initialized protection from the rollback helper.
+        return park_write_rollback_reason(key, previous_content, incoming_content)
+
     previous_objects = max(0, _as_int(previous_content.get("45"), 0))
     incoming_objects = max(0, _as_int(incoming_content.get("45"), 0))
     previous_dinos = max(0, _as_int(previous_content.get("57"), 0))
@@ -4448,15 +4443,34 @@ def stale_park_write_reject_reason(key, previous_content, incoming_content):
     incoming_buildings = max(0, _as_int(incoming_content.get("60"), 0))
     object_drop = previous_objects - incoming_objects
     building_drop = previous_buildings - incoming_buildings
+    dino_drop = previous_dinos - incoming_dinos
+
+    # Proven player sells must win over "drastic slot drop" rollback heuristics.
+    # Bulk building deletes can halve park.45 while still being intentional.
+    if building_drop > 0 and park_write_has_verified_client_building_removal(
+        previous_content,
+        incoming_content,
+    ):
+        return ""
+    if dino_drop > 0 and park_write_has_verified_client_dino_removal(
+        previous_content,
+        incoming_content,
+    ):
+        return ""
+
+    rollback_reason = park_write_rollback_reason(
+        key,
+        previous_content,
+        incoming_content,
+    )
+    if rollback_reason:
+        return rollback_reason
     if object_drop <= 0 and building_drop <= 0:
         return ""
 
-    # Do not reject object-only decreases here; debris removal can legitimately
-    # lower object count. Building-row drops are accepted only when the same
-    # snapshot proves the linked building object slots were removed.
+    # Do not reject object-only decreases here; debris / decoration removal can
+    # legitimately lower object count. Building-row drops still need proof.
     if building_drop > 0:
-        if park_write_has_verified_client_building_removal(previous_content, incoming_content):
-            return ""
         return (
             f"{key} stale lower-count building snapshot "
             f"objects {previous_objects}->{incoming_objects} "
@@ -4621,11 +4635,9 @@ def park_write_has_verified_client_dino_removal(previous_content, incoming_conte
     incoming_objects = max(0, _as_int(incoming_content.get("45"), 0))
     if previous_objects - incoming_objects != dino_drop:
         return False
-    if not park_write_has_verified_client_object_tail_removal(
-        previous_content,
-        incoming_content,
-        allow_dino_drop=True,
-    ):
+    previous_buildings = max(0, _as_int(previous_content.get("60"), 0))
+    incoming_buildings = max(0, _as_int(incoming_content.get("60"), 0))
+    if incoming_buildings != previous_buildings:
         return False
 
     previous_values = previous_content.get("59")
@@ -4661,6 +4673,10 @@ def park_write_has_verified_client_dino_removal(previous_content, incoming_conte
         if previous_index >= len(previous_ids):
             return False
         previous_index += 1
+
+    # Tail-object sells are ideal, but mid-list sells that remap object slots
+    # are still valid when building counts stay put and remaining dino IDs are
+    # an ordered subsequence of the previous list.
     return True
 
 
@@ -4777,19 +4793,34 @@ def park_write_has_verified_client_building_removal(previous_content, incoming_c
     incoming_buildings = max(0, _as_int(incoming_content.get("60"), 0))
     object_drop = previous_objects_count - incoming_objects_count
     building_drop = previous_buildings - incoming_buildings
-    # Real sells are often 1 building + 1 object. Older logic required
-    # object_drop > building_drop, which rejected every normal sell and then
-    # repair-replay restored the sold building (mission regressions).
-    if building_drop <= 0 or incoming_buildings <= 0 or incoming_dinos < previous_dinos:
-        return False
-    # Keep wipe / corruption protection. Live sells observed in logs are small.
-    if building_drop > 8:
+    # Real sells are often 1 building + 1 object, and bulk deletes can remove
+    # dozens at once. Older logic required object_drop > building_drop and
+    # capped building_drop at 8, which rejected normal and bulk sells.
+    if building_drop <= 0 or incoming_dinos < previous_dinos:
         return False
     # A sell may keep object count flat (reuse/replace) or raise it slightly when
     # the same batch also places something else. Reject only large unexplained
     # object inflation relative to the building drop.
     if object_drop < 0 and (-object_drop) > building_drop + 2:
         return False
+
+    # Strongest live signal from bulk deletes: object count and building count
+    # drop by the same amount while dinos stay put (e.g. 70->39 / 36->5).
+    if (
+        object_drop == building_drop
+        and object_drop > 0
+        and incoming_dinos == previous_dinos
+    ):
+        return True
+
+    # Near-match for bulk deletes that also clear a little debris, or keep a
+    # couple of non-building objects while removing many buildings.
+    if (
+        object_drop > 0
+        and incoming_dinos == previous_dinos
+        and abs(object_drop - building_drop) <= max(2, building_drop // 10)
+    ):
+        return True
 
     previous_rows = _building_rows_by_slot(previous_content)
     incoming_rows = _building_rows_by_slot(incoming_content)
@@ -4798,13 +4829,17 @@ def park_write_has_verified_client_building_removal(previous_content, incoming_c
     if not removed_slots:
         return False
     # Client park writes remap building object slots after a sell, so the set
-    # difference can list several "removed" and "added" slots for a single
-    # park.60 drop. Accept the net row loss matching building_drop.
+    # difference can list several "removed" and "added" slots. Accept net row
+    # loss matching building_drop (tolerate off-by-one remap noise).
     net_removed_slots = len(removed_slots) - len(added_slots)
-    if net_removed_slots == building_drop and object_drop >= -building_drop:
+    if (
+        abs(net_removed_slots - building_drop) <= 1
+        and object_drop >= -building_drop
+        and incoming_dinos == previous_dinos
+    ):
         return True
 
-    if len(removed_slots) == building_drop and (
+    if abs(len(removed_slots) - building_drop) <= 1 and (
         park_write_has_verified_client_removed_building_objects(
             previous_content,
             incoming_content,
@@ -4834,7 +4869,7 @@ def park_write_has_verified_client_building_removal(previous_content, incoming_c
         previous_row = previous_rows.get(slot)
         if previous_row is None or _as_int(previous_row[1], 0) == 0:
             return False
-    return len(removed_slots) == building_drop
+    return abs(len(removed_slots) - building_drop) <= 1
 
 
 def log_stale_park_write_rejected(
