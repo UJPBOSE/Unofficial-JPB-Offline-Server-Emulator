@@ -132,10 +132,10 @@ This project does **not** claim those marks and does **not** imply endorsement.
 ## Requirements (high level)
 
 1. **Python 3** on Windows (or adapt the launcher for your OS)
-2. A **user-supplied**, **clean / legitimate** old Android client you are allowed to run — **no binary patching or other client patching is needed**
-3. An Android emulator whose clock can stay aligned with the PC clock — **[BlueStacks](https://www.bluestacks.com/)** is **recommended** (see below)
-4. **User-supplied** cache files in `cache_files/`, then generate the local manifest / onlineoptions with the launcher
-5. A way to **redirect** the game’s old online hostnames to your PC (see below) — still **without** modifying the APK. On a **real Android device**, you can use **Technitium DNS + Tailscale** (personal mesh); on emulator / same LAN, **AdAway**-style hosts redirects are typical.
+2. A **user-supplied**, **clean / legitimate** old **Android or iOS** client you are allowed to run — **no binary patching or other client patching is needed**
+3. For Android emulator play: an emulator whose clock can stay aligned with the PC clock — **[BlueStacks](https://www.bluestacks.com/)** is **recommended** (see below)
+4. **User-supplied** cache files when the client still needs to download assets from the emulator — use the matching platform caches (**Android** or **iOS**) in `cache_files/`, then generate the local manifest / onlineoptions with the launcher. If the client **already has** the needed cache files on the device, you may not need to re-serve a full cache pack from `cache_files/`
+5. A way to **redirect** the game’s old online hostnames to your PC (see below) — still **without** modifying the client. On a **real Android or iOS device**, you can use **hostname / address routing** or **Technitium DNS + Tailscale** (personal mesh); on Android emulator / same LAN, **AdAway**-style hosts redirects are typical.
 
 This repo does not teach or provide illegal client acquisition.
 
@@ -230,6 +230,26 @@ jp-4-9-0-pag.ludia.net         →  A  →  <PC Tailscale IPv4>
 - **DNS not overriding:** if hostnames still resolve to public/CDN addresses, confirm Tailscale Override DNS is on, Technitium has the local A records, and the phone is using Tailscale’s DNS path.  
 - **Assets fail but login seems to work (or the reverse):** re-check that the manifest was generated with the **same** Tailscale IP the phone can reach, and that Technitium points the game hostnames at that same IP.  
 - Reminder: this is for **your** PC and **your** device on **your** tailnet — not a public community server.
+
+### Playing on iOS
+
+The emulator can also be used with a **user-supplied**, **clean / legitimate** old **iOS** client. Same personal / local rules as Android: **no IPA redistribution** from this repo, and **no client binary patching** is required.
+
+**Routing**
+
+Point the game’s old online hostnames at your PC with either:
+
+- **Hostname / address routing** on your network (or equivalent local DNS / redirect you already use), or  
+- The same **Technitium DNS + Tailscale** personal-mesh setup described above for real devices (install Tailscale on the iPhone/iPad, override DNS to Technitium, generate the manifest with the PC’s **Tailscale** IPv4)
+
+**Caches**
+
+iOS needs **iOS** cache assets (not the Android pack), unless the install already has what it needs:
+
+- Put **user-supplied iOS** cache files in `cache_files/` and generate / patch the manifest as usual, **or**  
+- If the iOS client **already has** the cache files on the device, you can play with routing alone for login / save traffic without re-adding a full iOS cache pack to the PC
+
+Use only caches and a client you are allowed to use. This repo still does **not** provide IPAs, iOS caches, or download links.
 
 ---
 
