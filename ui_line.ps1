@@ -1,7 +1,7 @@
 # Single centered line helper (same formula as launcher_ui.ps1).
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet("Yellow", "Red", "Blank")]
+  [ValidateSet("Yellow", "Red", "Green", "Blank")]
   [string]$Mode,
   [string]$Text = ""
 )
@@ -49,5 +49,9 @@ if ($Mode -eq "Blank") {
 if ([string]::IsNullOrEmpty($Text)) { $Text = "" }
 $width = Get-ConsoleWidth
 $pad = [Math]::Max(0, [Math]::Floor(($width / 2) - ($Text.Length / 2)))
-$color = if ($Mode -eq "Red") { [ConsoleColor]::Red } else { [ConsoleColor]::Yellow }
+$color = switch ($Mode) {
+  "Red" { [ConsoleColor]::Red }
+  "Green" { [ConsoleColor]::Green }
+  default { [ConsoleColor]::Yellow }
+}
 Write-Host ((" " * $pad) + $Text) -ForegroundColor $color

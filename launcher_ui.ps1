@@ -6,7 +6,8 @@ param(
   [Parameter(Mandatory = $true)]
   [ValidateSet("Main", "Bucks")]
   [string]$Menu,
-  [string]$BucksDescription = ""
+  [string]$BucksDescription = "",
+  [string]$StatusSummary = ""
 )
 
 function Get-ConsoleWidthHeight {
@@ -97,7 +98,7 @@ function Draw-MainMenu {
   $size = Get-ConsoleWidthHeight
   $script:ConsoleWidth = [int]$size.Width
   $script:ConsoleHeight = [int]$size.Height
-  $blockLines = 26
+  $blockLines = 32
   Clear-Host
   $top = [Math]::Max(0, [Math]::Floor(($script:ConsoleHeight - $blockLines) / 2))
   for ($i = 0; $i -lt $top; $i++) { Write-Blank }
@@ -108,21 +109,28 @@ function Draw-MainMenu {
   Write-Blank
   Write-HostCenter "-----------------------------------------------" Red
   Write-HostCenter ("Bucks rewards: " + $BucksDescription)
+  if (-not [string]::IsNullOrWhiteSpace($StatusSummary)) {
+    $summaryColor = if ($StatusSummary -like "Setup looks ready*") { [ConsoleColor]::Green } else { [ConsoleColor]::Yellow }
+    Write-HostCenter $StatusSummary $summaryColor
+  }
   Write-HostCenter "-----------------------------------------------" Red
   Write-Blank
   Write-HostCenter "[1] Start playing"
   Write-HostCenter "Start the offline server (recommended after setup)."
   Write-Blank
   Write-HostCenter "[2] First-time setup"
-  Write-HostCenter "Link the game to this PC's IP address."
+  Write-HostCenter "Guided setup: emulator, same Wi-Fi, or Tailscale."
   Write-HostCenter "Do this once, or again if your IP changes."
   Write-Blank
-  Write-HostCenter "[3] Change bucks rewards"
+  Write-HostCenter "[3] Check setup status"
+  Write-HostCenter "Python, cache packs, manifest, and PC address checklist."
+  Write-Blank
+  Write-HostCenter "[4] Change bucks rewards"
   Write-HostCenter "Choose how many bucks the server gifts you."
   Write-Blank
-  Write-HostCenter "[4] Quit"
+  Write-HostCenter "[5] Quit"
   Write-Blank
-  Write-HostCenter "Press 1, 2, 3, or 4:"
+  Write-HostCenter "Press 1, 2, 3, 4, or 5:"
 }
 
 function Draw-BucksMenu {
@@ -153,7 +161,7 @@ function Draw-BucksMenu {
   Write-HostCenter "Press 1, 2, 3, or 4:"
 }
 
-function Wait-ForMenuChoice([scriptblock]$Redraw) {
+function Wait-ForMenuChoice([scriptblock]$Redraw, [int[]]$ValidChoices) {
   & $Redraw
   while ($true) {
     $size = Get-ConsoleWidthHeight
@@ -162,11 +170,9 @@ function Wait-ForMenuChoice([scriptblock]$Redraw) {
     }
     if ($Host.UI.RawUI.KeyAvailable) {
       $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-      switch ($key.Character) {
-        "1" { exit 1 }
-        "2" { exit 2 }
-        "3" { exit 3 }
-        "4" { exit 4 }
+      $ch = $key.Character
+      if ($ch -match '^\d$' -and $ValidChoices -contains [int][string]$ch) {
+        exit ([int][string]$ch)
       }
     }
     Start-Sleep -Milliseconds 120
@@ -174,9 +180,9 @@ function Wait-ForMenuChoice([scriptblock]$Redraw) {
 }
 
 if ($Menu -eq "Main") {
-  Wait-ForMenuChoice { Draw-MainMenu }
+  Wait-ForMenuChoice { Draw-MainMenu } @(1, 2, 3, 4, 5)
 }
 
 if ($Menu -eq "Bucks") {
-  Wait-ForMenuChoice { Draw-BucksMenu }
+  Wait-ForMenuChoice { Draw-BucksMenu } @(1, 2, 3, 4)
 }

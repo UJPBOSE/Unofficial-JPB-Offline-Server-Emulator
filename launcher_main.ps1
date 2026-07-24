@@ -22,11 +22,22 @@ $script:PythonExe = $null
 
 function Write-UiLine {
   param(
-    [ValidateSet("Yellow", "Red", "Blank")]
+    [ValidateSet("Yellow", "Red", "Green", "Blank")]
     [string]$Mode,
     [string]$Text = ""
   )
   & $UiLine -Mode $Mode -Text $Text
+}
+
+function Write-StatusLine {
+  param(
+    [bool]$Ok,
+    [string]$Label,
+    [string]$Detail
+  )
+  $mark = if ($Ok) { "[OK]" } else { "[!!]" }
+  $mode = if ($Ok) { "Green" } else { "Yellow" }
+  Write-UiLine -Mode $Mode -Text ("$mark $Label - $Detail")
 }
 
 function Write-Banner {
@@ -103,7 +114,7 @@ function Test-RequiredLauncherFiles {
   return $false
 }
 
-function Resolve-PythonExe {
+function Find-PythonExeQuiet {
   $candidates = New-Object System.Collections.Generic.List[string]
   $candidates.Add((Join-Path $Root ".venv\Scripts\python.exe")) | Out-Null
   $local = $env:LOCALAPPDATA
@@ -112,14 +123,15 @@ function Resolve-PythonExe {
       "Python\pythoncore-3.14-64\python.exe",
       "Programs\Python\Python314\python.exe",
       "Programs\Python\Python313\python.exe",
-      "Programs\Python\Python312\python.exe"
+      "Programs\Python\Python312\python.exe",
+      "Programs\Python\Python311\python.exe",
+      "Programs\Python\Python310\python.exe"
     ) | ForEach-Object { $candidates.Add((Join-Path $local $_)) | Out-Null }
   }
   foreach ($path in $candidates) {
     if (Test-Path -LiteralPath $path) {
       if (Test-PythonVersion $path) {
-        $script:PythonExe = $path
-        return $true
+        return $path
       }
     }
   }
@@ -128,22 +140,189 @@ function Resolve-PythonExe {
     if (-not $path) { continue }
     if ($path -like "*\WindowsApps\*") { continue }
     if ((Test-Path -LiteralPath $path) -and (Test-PythonVersion $path)) {
-      $script:PythonExe = $path
-      return $true
+      return $path
     }
   }
   try {
     $pyOut = & py -3 -c "import sys; print(sys.executable)" 2>$null
     if ($pyOut -and (Test-Path -LiteralPath $pyOut) -and (Test-PythonVersion $pyOut)) {
-      $script:PythonExe = $pyOut
-      return $true
+      return $pyOut
     }
   } catch { }
+  return $null
+}
 
+function Offer-PythonDownload {
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Python 3.10+ is required for this offline server."
+  Write-UiLine -Mode Yellow -Text "Open the Python download page in your browser? [Y/N]"
+  $ans = Read-Host
+  if ($ans -match '^[Yy](es)?$') {
+    try {
+      Start-Process "https://www.python.org/downloads/"
+      Write-UiLine -Mode Blank
+      Write-UiLine -Mode Yellow -Text "Install Python, tick Add python.exe to PATH, then reopen this launcher."
+    } catch {
+      Write-UiLine -Mode Yellow -Text "Could not open the browser. Go to https://www.python.org/downloads/"
+    }
+  } else {
+    Write-UiLine -Mode Yellow -Text "Install Python 3 from https://www.python.org/downloads/ then try again."
+  }
+}
+
+function Resolve-PythonExe {
+  $found = Find-PythonExeQuiet
+  if ($found) {
+    $script:PythonExe = $found
+    return $true
+  }
   Write-UiLine -Mode Blank
   Write-UiLine -Mode Yellow -Text "Python was not found on this PC."
-  Write-UiLine -Mode Yellow -Text "Install Python 3 from python.org, then try again."
+  Offer-PythonDownload
   return $false
+}
+
+function Test-IPv4Address([string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+  return [bool]($Value -match '^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$')
+}
+
+function Get-CachePackInfo {
+  $cacheDir = Join-Path $Root "cache_files"
+  $result = [ordered]@{
+    DirExists = $false
+    PackCount = 0
+    Dab = 0
+    Dhr = 0
+    Dsb = 0
+  }
+  if (-not (Test-Path -LiteralPath $cacheDir)) { return $result }
+  $result.DirExists = $true
+  $files = @(Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue)
+  foreach ($f in $files) {
+    switch ($f.Extension.ToLowerInvariant()) {
+      ".dab" { $result.Dab++; $result.PackCount++ }
+      ".dhr" { $result.Dhr++; $result.PackCount++ }
+      ".dsb" { $result.Dsb++; $result.PackCount++ }
+    }
+  }
+  return $result
+}
+
+function Get-SetupStatus {
+  $py = Find-PythonExeQuiet
+  $cache = Get-CachePackInfo
+  $manifestPath = Join-Path $Root "fixed_manifest.json"
+  $onlinePath = Join-Path $Root "onlineoptions"
+  $lanIp = Get-LanIp
+  $manifestOk = Test-Path -LiteralPath $manifestPath
+  $onlineOk = Test-Path -LiteralPath $onlinePath
+  $cacheOk = $cache.PackCount -gt 0
+  # Ready if Python OK and (packs present OR already-generated connection files)
+  $connectionOk = $manifestOk -and $onlineOk
+  $ready = ($null -ne $py) -and ($cacheOk -or $connectionOk)
+
+  $cacheDetail = if (-not $cache.DirExists) {
+    "cache_files folder missing"
+  } elseif ($cache.PackCount -eq 0) {
+    "no .dab/.dhr/.dsb packs yet"
+  } else {
+    "$($cache.PackCount) packs (.dab $($cache.Dab), .dhr $($cache.Dhr), .dsb $($cache.Dsb))"
+  }
+
+  return [pscustomobject]@{
+    PythonOk     = ($null -ne $py)
+    PythonPath   = $py
+    PythonDetail = if ($py) { "Python 3 ready" } else { "not installed / not on PATH" }
+    CacheOk      = $cacheOk
+    CacheCount   = $cache.PackCount
+    CacheDetail  = $cacheDetail
+    ManifestOk   = $manifestOk
+    ManifestDetail = if ($manifestOk) { "fixed_manifest.json present" } else { "not created yet - run First-time setup" }
+    OnlineOk     = $onlineOk
+    OnlineDetail = if ($onlineOk) { "onlineoptions present" } else { "not created yet - run First-time setup" }
+    IpOk         = [bool]$lanIp
+    IpValue      = $lanIp
+    IpDetail     = if ($lanIp) { $lanIp } else { "could not auto-detect - type it in setup" }
+    ConnectionOk = $connectionOk
+    ReadyToPlay  = $ready
+    SummaryLine  = if ($ready) {
+      if ($cacheOk) { "Setup looks ready ($($cache.PackCount) cache packs)." }
+      else { "Setup looks ready (using existing connection files)." }
+    } else {
+      "Setup incomplete - choose [2] First-time setup or [3] Check setup."
+    }
+  }
+}
+
+function Show-SetupChecklist {
+  param([switch]$PauseAtEnd)
+  $status = Get-SetupStatus
+  Clear-Host
+  Write-Banner
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Setup checklist"
+  Write-UiLine -Mode Blank
+  Write-StatusLine -Ok $status.PythonOk -Label "Python" -Detail $status.PythonDetail
+  Write-StatusLine -Ok $status.CacheOk -Label "Cache packs" -Detail $status.CacheDetail
+  Write-UiLine -Mode Yellow -Text "     Use Android packs for Android / BlueStacks."
+  Write-UiLine -Mode Yellow -Text "     Use iOS packs for iPhone / iPad (or keep them on the device)."
+  Write-StatusLine -Ok $status.ManifestOk -Label "Manifest" -Detail $status.ManifestDetail
+  Write-StatusLine -Ok $status.OnlineOk -Label "Online options" -Detail $status.OnlineDetail
+  Write-StatusLine -Ok $status.IpOk -Label "PC address" -Detail $status.IpDetail
+  Write-UiLine -Mode Blank
+  if ($status.ReadyToPlay) {
+    Write-UiLine -Mode Green -Text "[OK] You can try [1] Start playing."
+  } else {
+    Write-UiLine -Mode Yellow -Text "[!!] Not ready yet. Fix the yellow items above, then run First-time setup."
+  }
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Redirect tip: AdAway (same Wi-Fi) or Technitium + Tailscale (phone)."
+  Write-UiLine -Mode Yellow -Text "See README for the hostname list and phone steps."
+  if ($PauseAtEnd) {
+    Write-UiLine -Mode Blank
+    if (-not $status.PythonOk) {
+      Offer-PythonDownload
+    }
+    Read-Host "Press Enter to continue"
+  }
+  return $status
+}
+
+function Get-PatchFailureHint([int]$ExitCode, [string]$OutputText) {
+  $text = [string]$OutputText
+  if ($ExitCode -eq 2 -or $text -match 'Invalid IPv4') {
+    return "That IP address does not look valid. Use something like 192.168.1.10 or a Tailscale 100.x.x.x address."
+  }
+  if ($text -match 'No package files|Cache directory not found|Android-shaped|Android or iOS') {
+    return "No cache packs found. Put your .dab / .dhr / .dsb files in the cache_files folder (Android or iOS matching your client)."
+  }
+  if ($text -match 'missing from cache|Unlisted cache|validation failed') {
+    return "Cache files do not match the manifest. Re-run setup after fixing cache_files, or use --regenerate from the README."
+  }
+  if ($text -match 'Missing .*fixed_manifest|cannot use --ip-only') {
+    return "Connection files are missing. Put cache packs in cache_files and run First-time setup again."
+  }
+  if ($ExitCode -eq 1) {
+    return "Setup failed. Check cache_files has your packs and the IP is correct, then try again."
+  }
+  return "Setup failed (error $ExitCode). Check the messages above."
+}
+
+function Invoke-ManifestPatch([string]$TargetIp, [string[]]$ExtraArgs) {
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Creating local connection files for $TargetIp ..."
+  Write-UiLine -Mode Blank
+  $out = & $script:PythonExe $PatchScript $TargetIp @ExtraArgs 2>&1 | ForEach-Object { "$_" }
+  $code = $LASTEXITCODE
+  foreach ($line in $out) {
+    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+    Write-UiLine -Mode Yellow -Text ([string]$line)
+  }
+  return @{
+    ExitCode = $code
+    Output   = ($out -join "`n")
+  }
 }
 
 function Test-PythonVersion([string]$Exe) {
@@ -193,45 +372,44 @@ function Ensure-ConnectionFiles([string]$LanIp) {
     Write-UiLine -Mode Yellow -Text "or connect to Wi-Fi / Ethernet and try again."
     return $false
   }
-  $cacheDir = Join-Path $Root "cache_files"
-  if (-not (Test-Path -LiteralPath $cacheDir)) {
+  if (-not (Test-IPv4Address $LanIp)) {
     Clear-Host
     Write-Banner
     Write-UiLine -Mode Blank
-    Write-UiLine -Mode Yellow -Text "Missing cache_files folder."
-    Write-UiLine -Mode Yellow -Text "Put your own cache packs in cache_files, then try again."
+    Write-UiLine -Mode Yellow -Text "Detected address looks invalid: $LanIp"
+    Write-UiLine -Mode Yellow -Text "Use [2] First-time setup and type a correct IPv4."
     return $false
   }
-  $havePacks = @(Get-ChildItem -LiteralPath $cacheDir -File -ErrorAction SilentlyContinue |
-      Where-Object { $_.Extension -match '^\.(dab|dhr|dsb)$' }).Count -gt 0
+  $cache = Get-CachePackInfo
   $patchExtra = @()
-  if (-not $havePacks) {
+  if ($cache.PackCount -le 0) {
     $manifest = Join-Path $Root "fixed_manifest.json"
     $online = Join-Path $Root "onlineoptions"
     if ((Test-Path -LiteralPath $manifest) -and (Test-Path -LiteralPath $online)) {
       Write-UiLine -Mode Blank
-      Write-UiLine -Mode Yellow -Text "No cache packs found. Using your existing connection files."
+      Write-UiLine -Mode Yellow -Text "No cache packs in folder. Updating IP on your existing connection files."
       $patchExtra = @("--ip-only")
     } else {
       Clear-Host
       Write-Banner
       Write-UiLine -Mode Blank
       Write-UiLine -Mode Yellow -Text "No game cache packs were found."
-      Write-UiLine -Mode Yellow -Text "Put your .dab / .dhr / .dsb files in the cache_files folder,"
-      Write-UiLine -Mode Yellow -Text "then use [2] First-time setup, or press [1] again."
+      Write-UiLine -Mode Yellow -Text "Put Android or iOS .dab / .dhr / .dsb files in cache_files"
+      Write-UiLine -Mode Yellow -Text "(matching your client), then use [2] First-time setup."
       return $false
     }
+  } else {
+    Write-UiLine -Mode Blank
+    Write-UiLine -Mode Green -Text ("Found $($cache.PackCount) cache packs in cache_files.")
   }
-  Write-UiLine -Mode Blank
-  Write-UiLine -Mode Yellow -Text "Checking connection files for $LanIp ..."
-  & $script:PythonExe $PatchScript $LanIp @patchExtra
-  if ($LASTEXITCODE -ne 0) {
+  $result = Invoke-ManifestPatch -TargetIp $LanIp -ExtraArgs $patchExtra
+  if ($result.ExitCode -ne 0) {
     Clear-Host
     Write-Banner
     Write-UiLine -Mode Blank
     Write-UiLine -Mode Yellow -Text "Could not create connection files."
-    Write-UiLine -Mode Yellow -Text "Make sure cache_files has your .dab / .dhr / .dsb packs,"
-    Write-UiLine -Mode Yellow -Text "then try [2] First-time setup."
+    Write-UiLine -Mode Yellow -Text (Get-PatchFailureHint $result.ExitCode $result.Output)
+    Write-UiLine -Mode Yellow -Text "Then try [2] First-time setup."
     return $false
   }
   return $true
@@ -268,13 +446,18 @@ function Show-MenuChoice([string]$Menu) {
   # Start-Process -ArgumentList arrays do NOT quote paths with spaces, so -File
   # would become C:\...\Jurassic and fail. Build one properly quoted argument string.
   $desc = Get-BucksDescription
+  $summary = ""
+  if ($Menu -eq "Main") {
+    $summary = (Get-SetupStatus).SummaryLine
+  }
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = (Get-Command powershell.exe).Source
   $psi.WorkingDirectory = $Root
   $psi.UseShellExecute = $false
   $fileArg = $UiMenu.Replace('"', '\"')
   $descArg = $desc.Replace('"', '\"')
-  $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$fileArg`" -Menu $Menu -BucksDescription `"$descArg`""
+  $summaryArg = $summary.Replace('"', '\"')
+  $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$fileArg`" -Menu $Menu -BucksDescription `"$descArg`" -StatusSummary `"$summaryArg`""
   $p = [System.Diagnostics.Process]::Start($psi)
   $p.WaitForExit()
   return [int]$p.ExitCode
@@ -347,44 +530,130 @@ function Invoke-BucksOptions {
   }
 }
 
-function Invoke-PatchManifest {
-  Clear-Host
-  Write-Banner
-  if (-not (Resolve-PythonExe)) {
+function Invoke-GuidedSetup {
+  $status = Show-SetupChecklist -PauseAtEnd
+  $status = Get-SetupStatus
+  if (-not $status.PythonOk) {
+    Write-UiLine -Mode Yellow -Text "Python is still missing. Install it, reopen this launcher, then try setup again."
     Read-Host "Press Enter to continue"
     return
   }
+  $script:PythonExe = $status.PythonPath
+
+  Clear-Host
+  Write-Banner
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "First-time setup - how will you play?"
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "[1] Emulator on this PC (BlueStacks / similar)"
+  Write-UiLine -Mode Yellow -Text "    Uses this PC's Wi-Fi/Ethernet address."
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "[2] Phone / tablet on the same Wi-Fi"
+  Write-UiLine -Mode Yellow -Text "    Uses this PC's LAN address + AdAway-style redirect."
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "[3] Phone / tablet with Tailscale"
+  Write-UiLine -Mode Yellow -Text "    Uses your Tailscale 100.x.x.x address + Technitium DNS."
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "[4] Cancel - back to menu"
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Press 1, 2, 3, or 4:"
+
+  $mode = $null
+  while ($null -eq $mode) {
+    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    switch ($key.Character) {
+      "1" { $mode = "emulator" }
+      "2" { $mode = "wifi" }
+      "3" { $mode = "tailscale" }
+      "4" { return }
+    }
+  }
+
   $lanIp = Get-LanIp
+  $suggested = $lanIp
+  $hint = ""
+  switch ($mode) {
+    "emulator" {
+      $hint = "Emulator on this PC: usually your detected LAN IP is fine."
+    }
+    "wifi" {
+      $hint = "Same Wi-Fi: use this PC's LAN IP, then point AdAway hostnames at it."
+    }
+    "tailscale" {
+      $suggested = $null
+      $hint = "Tailscale: type the PC Tailscale IPv4 (starts with 100.), not only home Wi-Fi."
+    }
+  }
+
+  Clear-Host
+  Write-Banner
   Write-UiLine -Mode Blank
   Write-UiLine -Mode Yellow -Text "This step tells the game how to reach THIS PC."
-  Write-UiLine -Mode Yellow -Text "Put your cache files in the cache_files folder first."
+  Write-UiLine -Mode Yellow -Text $hint
   Write-UiLine -Mode Blank
-  if ($lanIp) {
-    Write-UiLine -Mode Yellow -Text "Detected PC address: $lanIp"
+  $cache = Get-CachePackInfo
+  if ($cache.PackCount -gt 0) {
+    Write-UiLine -Mode Green -Text ("Cache packs found: $($cache.PackCount) (.dab $($cache.Dab), .dhr $($cache.Dhr), .dsb $($cache.Dsb))")
+    Write-UiLine -Mode Yellow -Text "Remember: Android client needs Android packs; iOS needs iOS packs."
+  } else {
+    Write-UiLine -Mode Yellow -Text "No cache packs in cache_files yet."
+    Write-UiLine -Mode Yellow -Text "If the client already has caches on-device, you may still patch IP later,"
+    Write-UiLine -Mode Yellow -Text "but first setup normally needs packs in cache_files."
+  }
+  Write-UiLine -Mode Blank
+  if ($suggested) {
+    Write-UiLine -Mode Yellow -Text "Suggested address: $suggested"
     Write-UiLine -Mode Yellow -Text "Press Enter to use that, or type a different IPv4."
   } else {
-    Write-UiLine -Mode Yellow -Text "Could not detect your PC address automatically."
-    Write-UiLine -Mode Yellow -Text "Find it with ipconfig (IPv4 Address), then type it below."
+    Write-UiLine -Mode Yellow -Text "Type the IPv4 address the game should use."
   }
   Write-UiLine -Mode Blank
   $manifestIp = Read-Host "PC IPv4 address"
-  if ([string]::IsNullOrWhiteSpace($manifestIp) -and $lanIp) { $manifestIp = $lanIp }
+  if ([string]::IsNullOrWhiteSpace($manifestIp) -and $suggested) { $manifestIp = $suggested }
+  $manifestIp = [string]$manifestIp.Trim()
   if ([string]::IsNullOrWhiteSpace($manifestIp)) {
     Write-UiLine -Mode Yellow -Text "No address entered. Returning to the menu."
     Read-Host "Press Enter to continue"
     return
   }
+  if (-not (Test-IPv4Address $manifestIp)) {
+    Write-UiLine -Mode Blank
+    Write-UiLine -Mode Yellow -Text "That does not look like a valid IPv4 address: $manifestIp"
+    Write-UiLine -Mode Yellow -Text "Example LAN: 192.168.1.10   Example Tailscale: 100.x.x.x"
+    Read-Host "Press Enter to continue"
+    return
+  }
+
+  $extra = @()
+  if ($cache.PackCount -le 0) {
+    $manifest = Join-Path $Root "fixed_manifest.json"
+    $online = Join-Path $Root "onlineoptions"
+    if ((Test-Path -LiteralPath $manifest) -and (Test-Path -LiteralPath $online)) {
+      $extra = @("--ip-only")
+      Write-UiLine -Mode Yellow -Text "Updating IP only (no new cache packs in folder)."
+    }
+  }
+
+  $result = Invoke-ManifestPatch -TargetIp $manifestIp -ExtraArgs $extra
   Write-UiLine -Mode Blank
-  Write-UiLine -Mode Yellow -Text "Creating local connection files..."
-  Write-UiLine -Mode Blank
-  & $script:PythonExe $PatchScript $manifestIp.Trim()
-  $patchExit = $LASTEXITCODE
-  Write-UiLine -Mode Blank
-  if ($patchExit -eq 0) {
-    Write-UiLine -Mode Yellow -Text "Setup finished. You can now choose [1] Start playing."
+  if ($result.ExitCode -eq 0) {
+    Write-UiLine -Mode Green -Text "Setup finished."
+    Write-UiLine -Mode Yellow -Text "Next: redirect game hostnames to this PC, then choose [1] Start playing."
+    switch ($mode) {
+      "emulator" {
+        Write-UiLine -Mode Yellow -Text "Emulator tip: AdAway (or hosts) on the emulator -> this PC IP."
+        Write-UiLine -Mode Yellow -Text "When starting, answer Y for BlueStacks clock sync if you use BlueStacks."
+      }
+      "wifi" {
+        Write-UiLine -Mode Yellow -Text "Phone tip: AdAway redirect hostnames to $manifestIp (see README)."
+      }
+      "tailscale" {
+        Write-UiLine -Mode Yellow -Text "Tailscale tip: Technitium A records + Override DNS -> $manifestIp"
+        Write-UiLine -Mode Yellow -Text "Keep Tailscale connected on the phone while playing."
+      }
+    }
   } else {
-    Write-UiLine -Mode Yellow -Text "Setup failed (error $patchExit)."
-    Write-UiLine -Mode Yellow -Text "Check that cache_files has your packs, then try again."
+    Write-UiLine -Mode Yellow -Text (Get-PatchFailureHint $result.ExitCode $result.Output)
   }
   Write-UiLine -Mode Blank
   Read-Host "Press Enter to continue"
@@ -393,6 +662,14 @@ function Invoke-PatchManifest {
 function Start-OfflineServer {
   Clear-Host
   Write-Banner
+  $pre = Get-SetupStatus
+  Write-UiLine -Mode Blank
+  Write-UiLine -Mode Yellow -Text "Quick check before start:"
+  Write-StatusLine -Ok $pre.PythonOk -Label "Python" -Detail $pre.PythonDetail
+  Write-StatusLine -Ok $pre.CacheOk -Label "Cache packs" -Detail $pre.CacheDetail
+  Write-StatusLine -Ok $pre.ConnectionOk -Label "Connection files" -Detail $(if ($pre.ConnectionOk) { "manifest + onlineoptions ready" } else { "need First-time setup" })
+  Write-UiLine -Mode Blank
+
   if (-not (Resolve-PythonExe)) {
     Read-Host "Press Enter to continue"
     return
@@ -513,9 +790,10 @@ Load-Settings
 while ($true) {
   $choice = Show-MenuChoice "Main"
   switch ($choice) {
-    4 { exit 0 }
-    3 { Invoke-BucksOptions }
-    2 { Invoke-PatchManifest }
+    5 { exit 0 }
+    4 { Invoke-BucksOptions }
+    3 { Show-SetupChecklist -PauseAtEnd | Out-Null }
+    2 { Invoke-GuidedSetup }
     1 { Start-OfflineServer }
   }
 }

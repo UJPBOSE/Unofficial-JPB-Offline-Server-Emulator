@@ -191,7 +191,10 @@ def build_manifest_from_cache(
 
     if not os.path.isdir(cache_dir):
         output(f"Cache directory not found: {cache_dir}")
-        output("Put your Android-shaped .dab/.dhr/.dsb packs in cache_files/ first.")
+        output(
+            "Put your Android or iOS .dab/.dhr/.dsb packs in cache_files/ first "
+            "(use the pack set that matches your client)."
+        )
         return None, 1
 
     try:
@@ -202,6 +205,9 @@ def build_manifest_from_cache(
 
     if not package_names:
         output(f"No package files (.dab/.dhr/.dsb) found in {cache_dir}")
+        output(
+            "Add Android packs for Android/BlueStacks, or iOS packs for iPhone/iPad."
+        )
         return None, 1
 
     by_stem = {}
@@ -520,6 +526,8 @@ def main(argv=None):
                 "Example: python patch_manifest_ip.py 192.168.0.42\n\n"
                 "Generates local fixed_manifest.json from cache_files/ and\n"
                 "onlineoptions from built-in defaults when missing.\n"
+                "Put Android or iOS .dab/.dhr/.dsb packs in cache_files/\n"
+                "(matching your client platform).\n"
                 "Use --regenerate to rebuild both from sources even if present.\n"
                 "Use --ip-only to update an existing manifest IP without cache packs."
             )
